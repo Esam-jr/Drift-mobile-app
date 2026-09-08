@@ -5,12 +5,12 @@ import {
   Switch,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
   Alert,
   Modal,
   Platform,
   StatusBar,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
 import { Shield, Lock, Fingerprint, HardDrive, Download, Info, Check, X } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';

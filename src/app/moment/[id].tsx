@@ -5,12 +5,12 @@ import {
   Image,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
   Alert,
   TextInput,
   Platform,
   StatusBar,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft, Trash2, Edit3, Check, X, MapPin, Calendar, Clock } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';

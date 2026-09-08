@@ -1,6 +1,7 @@
 import * as SQLite from 'expo-sqlite';
 
 let dbInstance: SQLite.SQLiteDatabase | null = null;
+let dbInitPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
 const DEFAULT_CATEGORIES = [
   { id: 'cat-personal', name: 'Personal', color: '#8CA697', icon: 'heart' },
@@ -11,11 +12,10 @@ const DEFAULT_CATEGORIES = [
 ];
 
 /**
- * Initializes database tables and default data.
+ * Initializes database tables and default data idempotently.
  */
 async function initSchema(db: SQLite.SQLiteDatabase): Promise<void> {
   await db.execAsync(`
-    PRAGMA journal_mode = WAL;
     PRAGMA foreign_keys = ON;
 
     CREATE TABLE IF NOT EXISTS categories (
@@ -53,32 +53,41 @@ async function initSchema(db: SQLite.SQLiteDatabase): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_moment_images_moment_id ON moment_images(moment_id);
   `);
 
-  // Seed default categories if none exist
-  const existingCategories = await db.getAllAsync<{ count: number }>(
-    'SELECT COUNT(*) as count FROM categories;'
-  );
-  if (!existingCategories || existingCategories[0]?.count === 0) {
-    const now = Date.now();
-    for (const cat of DEFAULT_CATEGORIES) {
-      await db.runAsync(
-        'INSERT INTO categories (id, name, color, icon, created_at) VALUES (?, ?, ?, ?, ?);',
-        cat.id,
-        cat.name,
-        cat.color,
-        cat.icon,
-        now
-      );
-    }
+  // Seed default categories idempotently using INSERT OR IGNORE
+  const now = Date.now();
+  for (const cat of DEFAULT_CATEGORIES) {
+    await db.runAsync(
+      'INSERT OR IGNORE INTO categories (id, name, color, icon, created_at) VALUES (?, ?, ?, ?, ?);',
+      cat.id,
+      cat.name,
+      cat.color,
+      cat.icon,
+      now
+    );
   }
 }
 
 /**
- * Returns the singleton SQLite database instance, initializing it if needed.
+ * Returns the singleton SQLite database instance, guarding against concurrent init races.
  */
 export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
-  if (!dbInstance) {
-    dbInstance = await SQLite.openDatabaseAsync('drift.db');
-    await initSchema(dbInstance);
+  if (dbInstance) {
+    return dbInstance;
   }
-  return dbInstance;
+
+  if (!dbInitPromise) {
+    dbInitPromise = (async () => {
+      try {
+        const db = await SQLite.openDatabaseAsync('drift.db');
+        await initSchema(db);
+        dbInstance = db;
+        return db;
+      } catch (err) {
+        dbInitPromise = null;
+        throw err;
+      }
+    })();
+  }
+
+  return dbInitPromise;
 }

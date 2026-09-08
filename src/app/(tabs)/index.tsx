@@ -5,10 +5,10 @@ import {
   RefreshControl,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
   Platform,
   StatusBar,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Sparkles, Plus, Search, Filter } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';

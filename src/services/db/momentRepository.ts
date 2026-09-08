@@ -180,34 +180,32 @@ export async function createMoment(input: CreateMomentInput): Promise<Moment> {
     }
   }
 
-  await db.withTransactionAsync(async () => {
-    await db.runAsync(
-      `INSERT INTO moments (id, title, text, created_at, updated_at, category_id, audio_uri, audio_duration, location_name)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
-      momentId,
-      input.title || null,
-      input.text || null,
-      now,
-      now,
-      input.categoryId || null,
-      persistentAudioUri,
-      input.audioDuration || null,
-      input.locationName || null
-    );
+  await db.runAsync(
+    `INSERT INTO moments (id, title, text, created_at, updated_at, category_id, audio_uri, audio_duration, location_name)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+    momentId,
+    input.title ?? null,
+    input.text ?? null,
+    now,
+    now,
+    input.categoryId ?? null,
+    persistentAudioUri ?? null,
+    input.audioDuration ?? null,
+    input.locationName ?? null
+  );
 
-    for (let i = 0; i < persistentImageUris.length; i++) {
-      const imgId = generateId();
-      await db.runAsync(
-        `INSERT INTO moment_images (id, moment_id, uri, order_index, created_at)
-         VALUES (?, ?, ?, ?, ?);`,
-        imgId,
-        momentId,
-        persistentImageUris[i],
-        i,
-        now
-      );
-    }
-  });
+  for (let i = 0; i < persistentImageUris.length; i++) {
+    const imgId = generateId();
+    await db.runAsync(
+      `INSERT INTO moment_images (id, moment_id, uri, order_index, created_at)
+       VALUES (?, ?, ?, ?, ?);`,
+      imgId,
+      momentId,
+      persistentImageUris[i],
+      i,
+      now
+    );
+  }
 
   const created = await getMomentById(momentId);
   if (!created) {
@@ -228,19 +226,17 @@ export async function updateMoment(input: UpdateMomentInput): Promise<Moment> {
     throw new Error(`Moment with id ${input.id} not found`);
   }
 
-  await db.withTransactionAsync(async () => {
-    await db.runAsync(
-      `UPDATE moments 
-       SET title = ?, text = ?, category_id = ?, updated_at = ?, location_name = ?
-       WHERE id = ?;`,
-      input.title !== undefined ? (input.title ?? null) : (existing.title ?? null),
-      input.text !== undefined ? (input.text ?? null) : (existing.text ?? null),
-      input.categoryId !== undefined ? (input.categoryId ?? null) : (existing.categoryId ?? null),
-      now,
-      input.locationName !== undefined ? (input.locationName ?? null) : (existing.locationName ?? null),
-      input.id
-    );
-  });
+  await db.runAsync(
+    `UPDATE moments 
+     SET title = ?, text = ?, category_id = ?, updated_at = ?, location_name = ?
+     WHERE id = ?;`,
+    input.title !== undefined ? (input.title ?? null) : (existing.title ?? null),
+    input.text !== undefined ? (input.text ?? null) : (existing.text ?? null),
+    input.categoryId !== undefined ? (input.categoryId ?? null) : (existing.categoryId ?? null),
+    now,
+    input.locationName !== undefined ? (input.locationName ?? null) : (existing.locationName ?? null),
+    input.id
+  );
 
   const updated = await getMomentById(input.id);
   if (!updated) {
@@ -266,10 +262,8 @@ export async function deleteMoment(id: string): Promise<void> {
   }
 
   // 2. Delete database rows (images cascade delete)
-  await db.withTransactionAsync(async () => {
-    await db.runAsync('DELETE FROM moment_images WHERE moment_id = ?;', id);
-    await db.runAsync('DELETE FROM moments WHERE id = ?;', id);
-  });
+  await db.runAsync('DELETE FROM moment_images WHERE moment_id = ?;', id);
+  await db.runAsync('DELETE FROM moments WHERE id = ?;', id);
 }
 
 /**
