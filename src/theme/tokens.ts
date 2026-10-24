@@ -1,116 +1,72 @@
-export const DriftTokens = {
-  colors: {
-    // Dark Theme - "Quiet Mist & Slate"
-    dark: {
-      background: '#0B0D11',
-      surface: '#13161D',
-      surfaceRaised: '#1C212B',
-      surfaceElevated: '#242A36',
-      border: '#2A313E',
-      borderSubtle: '#1C222D',
-      textPrimary: '#F2F1ED',
-      textSecondary: '#9EA6B4',
-      textTertiary: '#646D7E',
-      accent: '#8CA697', // Soft Sage
-      accentSubtle: 'rgba(140, 166, 151, 0.15)',
-      lavender: '#A29BB2',
-      lavenderSubtle: 'rgba(162, 155, 178, 0.15)',
-      amber: '#C5A376',
-      amberSubtle: 'rgba(197, 163, 118, 0.15)',
-      sky: '#829EB3',
-      skySubtle: 'rgba(130, 158, 179, 0.15)',
-      rose: '#D27F83',
-      roseSubtle: 'rgba(210, 127, 131, 0.15)',
-      overlay: 'rgba(11, 13, 17, 0.82)',
-      cardGradientStart: '#141720',
-      cardGradientEnd: '#101218',
-    },
-    // Light Theme - "Warm Linen & Slate"
-    light: {
-      background: '#F7F6F2',
-      surface: '#FFFFFF',
-      surfaceRaised: '#EFECE6',
-      surfaceElevated: '#E5E1D8',
-      border: '#E1DDD5',
-      borderSubtle: '#EDEAE4',
-      textPrimary: '#1F242C',
-      textSecondary: '#667085',
-      textTertiary: '#98A2B3',
-      accent: '#557262',
-      accentSubtle: 'rgba(85, 114, 98, 0.12)',
-      lavender: '#766D87',
-      lavenderSubtle: 'rgba(118, 109, 135, 0.12)',
-      amber: '#9D7847',
-      amberSubtle: 'rgba(157, 120, 71, 0.12)',
-      sky: '#54738B',
-      skySubtle: 'rgba(84, 115, 139, 0.12)',
-      rose: '#B65459',
-      roseSubtle: 'rgba(182, 84, 89, 0.12)',
-      overlay: 'rgba(247, 246, 242, 0.88)',
-      cardGradientStart: '#FFFFFF',
-      cardGradientEnd: '#F9F8F5',
-    },
-  },
-  spacing: {
-    xs: 4,
-    sm: 8,
-    md: 12,
-    lg: 16,
-    xl: 20,
-    xxl: 28,
-    huge: 36,
-    massive: 48,
-  },
-  radius: {
-    xs: 6,
-    sm: 10,
-    md: 16,
-    lg: 22,
-    xl: 30,
-    full: 9999,
-  },
-  typography: {
-    display: {
-      fontSize: 32,
-      lineHeight: 40,
-      fontWeight: '600' as const,
-      letterSpacing: -0.6,
-    },
-    title: {
-      fontSize: 22,
-      lineHeight: 28,
-      fontWeight: '600' as const,
-      letterSpacing: -0.3,
-    },
-    headline: {
-      fontSize: 18,
-      lineHeight: 25,
-      fontWeight: '500' as const,
-      letterSpacing: -0.2,
-    },
-    body: {
-      fontSize: 16,
-      lineHeight: 24,
-      fontWeight: '400' as const,
-    },
-    bodySmall: {
-      fontSize: 14,
-      lineHeight: 20,
-      fontWeight: '400' as const,
-    },
-    caption: {
-      fontSize: 12,
-      lineHeight: 16,
-      fontWeight: '500' as const,
-      letterSpacing: 0.2,
-    },
-    micro: {
-      fontSize: 10,
-      lineHeight: 14,
-      fontWeight: '600' as const,
-      letterSpacing: 0.5,
-    },
-  },
-};
+// Drift design tokens. Source of truth for color, type, spacing, shape, and motion.
+// Never hardcode these values in screens. See DESIGN.md.
 
-export type DriftTheme = typeof DriftTokens.colors.dark;
+export const palette = {
+  light: {
+    bg: '#F4F1EB',
+    surface: '#FCFAF6',
+    text: '#26242E',
+    muted: '#6E6B7A',
+    accent: '#5F68C9',
+    onAccent: '#FFFFFF',
+    glow: '#E9A877',
+    hairline: 'rgba(38,36,46,0.12)',
+  },
+  dark: {
+    bg: '#13121B',
+    surface: '#1D1C29',
+    text: '#ECE9F3',
+    muted: '#9A97AB',
+    accent: '#9AA2F0',
+    onAccent: '#13121B',
+    glow: '#F0B88A',
+    hairline: 'rgba(236,233,243,0.12)',
+  },
+} as const;
+
+export type ThemeName = keyof typeof palette;
+export type Palette = (typeof palette)[ThemeName];
+
+// Mascot colors are the same in both themes.
+export const mote = {
+  body: '#6C75D8',
+  face: '#1D1C29',
+  glow: '#F0B88A',
+  trail: '#9AA2F0',
+} as const;
+
+// Suggested fonts: @expo-google-fonts/newsreader and @expo-google-fonts/figtree.
+export const fonts = {
+  serif: 'Newsreader_400Regular',
+  serifItalic: 'Newsreader_400Regular_Italic',
+  sans: 'Figtree_400Regular',
+  sansMedium: 'Figtree_500Medium',
+} as const;
+
+export const type = {
+  dayHeading: { fontFamily: fonts.serif, fontSize: 22, lineHeight: 28 },
+  dateDisplay: { fontFamily: fonts.serif, fontSize: 28, lineHeight: 32 },
+  prompt: { fontFamily: fonts.serif, fontSize: 22, lineHeight: 30 },
+  momentBody: { fontFamily: fonts.serif, fontSize: 17, lineHeight: 26 },
+  momentDetail: { fontFamily: fonts.serif, fontSize: 18, lineHeight: 28 },
+  ui: { fontFamily: fonts.sans, fontSize: 15, lineHeight: 20 },
+  uiMedium: { fontFamily: fonts.sansMedium, fontSize: 15, lineHeight: 20 },
+  meta: { fontFamily: fonts.sans, fontSize: 12, lineHeight: 16 },
+  small: { fontFamily: fonts.sans, fontSize: 11, lineHeight: 14 },
+} as const;
+
+export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32, huge: 48, screen: 20 } as const;
+
+export const radius = { sm: 8, md: 14, lg: 24, pill: 999 } as const;
+
+// Milliseconds. Respect reduced motion: swap movement for fades and stop loops.
+export const motion = {
+  fast: 160,
+  base: 280,
+  slow: 520,
+  settle: 700,
+  recordingRing: 2400,
+  float: 5000,
+} as const;
+
+export const hitSlop = 44; // minimum touch target

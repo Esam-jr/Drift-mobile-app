@@ -1,56 +1,68 @@
-# Welcome to your Expo app 👋
+# Drift 🌿
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+> *Thoughts drift in and out of our minds. Moments pass. Memories fade. Drift exists to capture them before they disappear.*
 
-## Get started
+Drift is a calm, offline-first, private personal journal and thought-capture application built with React Native and Expo. It is designed to capture thoughts, voice recordings, and memories effortlessly without requiring accounts, internet connectivity, or complicated productivity workflows.
 
-1. Install dependencies
+---
 
-   ```bash
-   npm install
-   ```
+## 📖 Technical Documentation
 
-2. Start the app
+Comprehensive technical documentation is available in the [`docs/`](./docs) directory:
 
-   ```bash
-   npx expo start
-   ```
+| Document | Description |
+| :--- | :--- |
+| **[Architecture & Technical Design](./docs/ARCHITECTURE.md)** | Core architectural principles, high-level system diagrams, component layers, data flows, and runtime state machines. |
+| **[Data Model & Storage Specification](./docs/DATA_MODEL.md)** | Relational SQLite schema, file system media directory architecture, indices, TypeScript contracts, and deletion lifecycle. |
+| **[Security & Privacy Architecture](./docs/SECURITY_AND_PRIVACY.md)** | Threat model, salted SHA-256 PIN hashing, hardware-backed secure storage, biometric unlock pipeline, and app-lock lifecycle. |
+| **[Media Subsystem Guide](./docs/MEDIA_SUBSYSTEM.md)** | Audio capture & playback pipeline (`expo-audio`), image acquisition (`expo-image-picker`), sandboxed persistence, and disk quota monitoring. |
+| **[Developer & Operations Guide](./docs/DEVELOPMENT_GUIDE.md)** | Setup instructions, directory tour, design system tokens, theming conventions, and debugging workflows. |
+| **[Product Philosophy (`agent.md`)](./agent.md)** | The original design manifesto, product principles, UX guidelines, and vision for Drift. |
 
-In the output, you'll find options to open the app in a
+---
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+## ✨ Key Features
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+- **Moment-Based Capture**: Rapidly record a thought, spoken voice memo, or photograph in seconds without tedious metadata forms.
+- **Offline-First & Local-Only**: All moments, database indices, and media files are stored strictly on-device using SQLite and local sandboxed storage.
+- **Hardware-Backed Security**: Optional passcode protection and biometric unlock (Face ID / Fingerprint) backed by the device's hardware Secure Enclave.
+- **Calm, Atmospheric Aesthetics**: Carefully crafted design system ("Quiet Mist & Slate" dark mode and "Warm Linen" light mode) with subtle micro-interactions and audio waveforms.
+- **Zero Telemetry**: No user accounts, no analytics tracking, no ads, and zero outbound network calls.
 
-## Get a fresh project
+---
 
-When you're ready, run:
+## 🚀 Getting Started
 
+### 1. Install Dependencies
 ```bash
-npm run reset-project
+npm install
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+### 2. Start the Development Server
+```bash
+# Start Expo Metro bundler
+npm start
 
-### Other setup steps
+# Run directly on your platform of choice:
+npm run ios       # iOS Simulator
+npm run android   # Android Emulator
+npm run web       # Web Browser preview
+```
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+---
 
-## Learn more
+## 🛠 Tech Stack
 
-To learn more about developing your project with Expo, look at the following resources:
+- **Framework**: [React Native](https://reactnative.dev/) & [Expo SDK 57](https://expo.dev/) (with [Expo Router](https://docs.expo.dev/router/introduction/))
+- **Language**: [TypeScript](https://www.typescriptlang.org/)
+- **Database**: [Expo SQLite](https://docs.expo.dev/versions/latest/sdk/sqlite/)
+- **File System**: [Expo FileSystem](https://docs.expo.dev/versions/latest/sdk/filesystem/)
+- **Media**: [Expo Audio](https://docs.expo.dev/versions/latest/sdk/audio/) & [Expo Image Picker](https://docs.expo.dev/versions/latest/sdk/image-picker/)
+- **Security**: [Expo SecureStore](https://docs.expo.dev/versions/latest/sdk/securestore/), [Expo Crypto](https://docs.expo.dev/versions/latest/sdk/crypto/), & [Expo Local Authentication](https://docs.expo.dev/versions/latest/sdk/local-authentication/)
+- **Icons**: [Lucide Icons](https://lucide.dev/) (`lucide-react-native`)
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+---
 
-## Join the community
+## 📄 License
 
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+This project is licensed under the MIT License. See [LICENSE](./LICENSE) for details.
