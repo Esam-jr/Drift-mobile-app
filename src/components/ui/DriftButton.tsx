@@ -82,7 +82,7 @@ export const DriftButton: React.FC<DriftButtonProps> = ({
     } else if (variant === 'ghost') {
       base.backgroundColor = 'transparent';
     } else if (variant === 'danger') {
-      base.backgroundColor = theme.roseSubtle;
+      base.backgroundColor = theme.surface;
       base.borderWidth = 1;
       base.borderColor = theme.rose;
     }

@@ -70,3 +70,15 @@ export const motion = {
 } as const;
 
 export const hitSlop = 44; // minimum touch target
+
+// ── Legacy compat ──────────────────────────────────────────────────
+// Maps old DriftTokens shape used by unmigrated files.
+// Remove once all screens use the named exports above.
+export const DriftTokens = {
+  radius: { ...radius, full: radius.pill, xs: radius.sm, xl: radius.lg },
+  spacing,
+  typography: type,
+  colors: palette,
+} as const;
+export type DriftTheme = Palette;
+

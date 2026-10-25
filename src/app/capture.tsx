@@ -11,7 +11,7 @@ import {
   Text,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { X, Mic, ImageIcon, Tag, MapPin } from 'lucide-react-native';
+import { X, Mic, Image as ImageLucide, Tag, MapPin } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/theme/ThemeContext';
 import { type as typeTokens, spacing, radius, hitSlop } from '@/theme/tokens';
@@ -200,7 +200,7 @@ export default function CaptureScreen() {
             accessibilityLabel="Add photos"
             style={[styles.toolBtn, { backgroundColor: colors.surface }]}
           >
-            <ImageIcon size={20} color={colors.muted} strokeWidth={1.8} />
+            <ImageLucide size={20} color={colors.muted} strokeWidth={1.8} />
           </TouchableOpacity>
           <TouchableOpacity
             activeOpacity={0.7}

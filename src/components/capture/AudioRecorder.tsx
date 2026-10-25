@@ -196,7 +196,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         <TouchableOpacity
           activeOpacity={0.7}
           onPress={togglePreviewPlayback}
-          style={[styles.playButton, { backgroundColor: theme.accentSubtle }]}
+          style={[styles.playButton, { backgroundColor: theme.surface }]}
         >
           {isPlaying ? (
             <Pause size={16} color={theme.accent} />
