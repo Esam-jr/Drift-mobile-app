@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   TextInput,
@@ -8,29 +8,28 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  Text,
 } from 'react-native';
-import { useRouter } from 'expo-router';
-import { X, Check } from 'lucide-react-native';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { X, Mic, ImageIcon, Tag, MapPin } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/theme/ThemeContext';
-import { DriftTokens } from '@/theme/tokens';
+import { type as typeTokens, spacing, radius, hitSlop } from '@/theme/tokens';
 import { Category } from '@/types/moment';
 import { getCategories, createMoment } from '@/services/db/momentRepository';
-import { DriftText } from '@/components/ui/DriftText';
-import { AudioRecorder } from '@/components/capture/AudioRecorder';
-import { ImagePickerButton } from '@/components/capture/ImagePickerButton';
 
 export default function CaptureScreen() {
-  const { theme } = useTheme();
+  const { colors } = useTheme();
   const router = useRouter();
+  const params = useLocalSearchParams<{ autoRecord?: string }>();
 
-  const [text, setText] = useState<string>('');
+  const textRef = useRef<TextInput>(null);
+
+  const [text, setText] = useState('');
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
-  const [audioUri, setAudioUri] = useState<string | null>(null);
-  const [audioDuration, setAudioDuration] = useState<number | null>(null);
-  const [imageUris, setImageUris] = useState<string[]>([]);
-  const [saving, setSaving] = useState<boolean>(false);
+  const [saving, setSaving] = useState(false);
+  const [showCategories, setShowCategories] = useState(false);
 
   useEffect(() => {
     getCategories()
@@ -38,11 +37,28 @@ export default function CaptureScreen() {
       .catch((err) => console.warn('Could not load categories:', err));
   }, []);
 
+  // Auto-focus the text input
+  useEffect(() => {
+    const timer = setTimeout(() => textRef.current?.focus(), 100);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const hasContent = text.trim().length > 0;
+
+  const selectedCategory = categories.find((c) => c.id === selectedCategoryId);
+
+  const nowLabel = (() => {
+    const d = new Date();
+    const day = d.toLocaleDateString(undefined, { month: 'long', day: 'numeric' });
+    const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    return `${day}, ${time}`;
+  })();
+
   const handleClose = () => {
-    if (text.trim().length > 0 || audioUri || imageUris.length > 0) {
+    if (hasContent) {
       Alert.alert(
-        'Discard thought?',
-        'Are you sure you want to discard what you started capturing?',
+        'Discard this moment?',
+        undefined,
         [
           { text: 'Keep writing', style: 'cancel' },
           {
@@ -57,16 +73,8 @@ export default function CaptureScreen() {
     }
   };
 
-  const handleSave = async () => {
-    // Check if there is anything to capture
-    const hasText = text.trim().length > 0;
-    const hasAudio = !!audioUri;
-    const hasImages = imageUris.length > 0;
-
-    if (!hasText && !hasAudio && !hasImages) {
-      Alert.alert('Empty moment', 'Capture a thought, record your voice, or attach a photo before saving.');
-      return;
-    }
+  const handleKeep = async () => {
+    if (!hasContent) return;
 
     setSaving(true);
     try {
@@ -75,11 +83,8 @@ export default function CaptureScreen() {
       } catch (_) {}
 
       await createMoment({
-        text: hasText ? text.trim() : undefined,
+        text: text.trim(),
         categoryId: selectedCategoryId,
-        audioUri: audioUri || undefined,
-        audioDuration: audioDuration || undefined,
-        imageUris: hasImages ? imageUris : undefined,
       });
 
       router.back();
@@ -90,242 +95,231 @@ export default function CaptureScreen() {
     }
   };
 
-  const handleAudioRecorded = (uri: string, durationMs: number) => {
-    setAudioUri(uri);
-    setAudioDuration(durationMs);
+  const toggleCategory = (id: string) => {
+    setSelectedCategoryId((prev) => (prev === id ? null : id));
   };
-
-  const handleAudioRemoved = () => {
-    setAudioUri(null);
-    setAudioDuration(null);
-  };
-
-  const handleImagesSelected = (newUris: string[]) => {
-    setImageUris((prev) => [...prev, ...newUris]);
-  };
-
-  const handleImageRemoved = (index: number) => {
-    setImageUris((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const hasContent = text.trim().length > 0 || !!audioUri || imageUris.length > 0;
 
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]}
+      style={[styles.root, { backgroundColor: colors.bg }]}
     >
-      <View style={[styles.sheetContainer, { backgroundColor: theme.surface }]}>
-        {/* Top Handle / Bar */}
-        <View style={styles.topHandleBar}>
+      {/* Top bar: close + timestamp */}
+      <View style={styles.topBar}>
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={handleClose}
+          accessibilityLabel="Close"
+          hitSlop={{ top: hitSlop, bottom: hitSlop, left: hitSlop, right: hitSlop }}
+          style={styles.closeBtn}
+        >
+          <X size={20} color={colors.muted} strokeWidth={1.8} />
+        </TouchableOpacity>
+        <Text style={[typeTokens.meta, { color: colors.muted }]}>
+          {nowLabel}
+        </Text>
+      </View>
+
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Multiline serif input */}
+        <TextInput
+          ref={textRef}
+          multiline
+          placeholder="What is drifting through your mind?"
+          placeholderTextColor={colors.muted}
+          value={text}
+          onChangeText={setText}
+          style={[
+            typeTokens.prompt,
+            styles.textInput,
+            { color: colors.text },
+          ]}
+          textAlignVertical="top"
+        />
+
+        {/* Attached category indicator */}
+        {selectedCategory && (
+          <View style={styles.attachedCategory}>
+            <View style={[styles.glowDot, { backgroundColor: colors.glow }]} />
+            <Text style={[typeTokens.meta, { color: colors.muted }]}>
+              {selectedCategory.name}
+            </Text>
+          </View>
+        )}
+
+        {/* Category picker */}
+        {showCategories && (
+          <View style={styles.categoryList}>
+            {categories.map((cat) => {
+              const isSelected = selectedCategoryId === cat.id;
+              return (
+                <TouchableOpacity
+                  key={cat.id}
+                  activeOpacity={0.7}
+                  onPress={() => toggleCategory(cat.id)}
+                  style={[
+                    styles.categoryChip,
+                    {
+                      backgroundColor: isSelected ? colors.accent + '20' : colors.surface,
+                    },
+                  ]}
+                >
+                  <View style={[styles.glowDot, { backgroundColor: colors.glow }]} />
+                  <Text
+                    style={[
+                      typeTokens.meta,
+                      { color: isSelected ? colors.accent : colors.muted },
+                    ]}
+                  >
+                    {cat.name}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
+      </ScrollView>
+
+      {/* Bottom toolbar + Keep button */}
+      <View style={styles.bottomArea}>
+        {/* Four toolbar buttons */}
+        <View style={styles.toolbar}>
           <TouchableOpacity
             activeOpacity={0.7}
-            onPress={handleClose}
-            style={styles.iconCircle}
+            accessibilityLabel="Record"
+            style={[styles.toolBtn, { backgroundColor: colors.accent }]}
           >
-            <X size={20} color={theme.textSecondary} />
+            <Mic size={20} color={colors.onAccent} strokeWidth={2} />
           </TouchableOpacity>
-
-          <View style={styles.sheetHandle}>
-            <View style={[styles.handleIndicator, { backgroundColor: theme.border }]} />
-          </View>
-
           <TouchableOpacity
-            activeOpacity={0.75}
-            onPress={handleSave}
-            disabled={saving || !hasContent}
-            style={[
-              styles.saveButton,
-              {
-                backgroundColor: hasContent ? theme.accent : theme.surfaceElevated,
-                opacity: hasContent ? 1 : 0.4,
-              },
-            ]}
+            activeOpacity={0.7}
+            accessibilityLabel="Add photos"
+            style={[styles.toolBtn, { backgroundColor: colors.surface }]}
           >
-            <Check size={18} color={hasContent ? '#0B0D11' : theme.textTertiary} strokeWidth={2.5} />
+            <ImageIcon size={20} color={colors.muted} strokeWidth={1.8} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            activeOpacity={0.7}
+            accessibilityLabel="Category"
+            onPress={() => setShowCategories(!showCategories)}
+            style={[styles.toolBtn, { backgroundColor: colors.surface }]}
+          >
+            <Tag size={20} color={colors.muted} strokeWidth={1.8} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            activeOpacity={0.7}
+            accessibilityLabel="Location"
+            style={[styles.toolBtn, { backgroundColor: colors.surface }]}
+          >
+            <MapPin size={20} color={colors.muted} strokeWidth={1.8} />
           </TouchableOpacity>
         </View>
 
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
+        {/* Keep button */}
+        <TouchableOpacity
+          activeOpacity={0.75}
+          onPress={handleKeep}
+          disabled={saving || !hasContent}
+          style={[
+            styles.keepButton,
+            {
+              backgroundColor: hasContent ? colors.accent : colors.surface,
+            },
+          ]}
         >
-          {/* Poetic Prompt */}
-          <DriftText variant="headline" color="primary" style={styles.prompt}>
-            What is drifting through your mind?
-          </DriftText>
-
-          {/* Auto-growing Text Input */}
-          <TextInput
-            multiline
-            autoFocus
-            placeholder="Write a thought, a memory, or an idea..."
-            placeholderTextColor={theme.textTertiary}
-            value={text}
-            onChangeText={setText}
+          <Text
             style={[
-              styles.textInput,
+              typeTokens.uiMedium,
               {
-                color: theme.textPrimary,
+                color: hasContent ? colors.onAccent : colors.muted,
               },
             ]}
-            textAlignVertical="top"
-          />
-
-          {/* Voice Memo Recording Section */}
-          <View style={styles.mediaSection}>
-            <AudioRecorder
-              audioUri={audioUri}
-              audioDuration={audioDuration}
-              onAudioRecorded={handleAudioRecorded}
-              onAudioRemoved={handleAudioRemoved}
-            />
-          </View>
-
-          {/* Image Picker Section */}
-          <View style={styles.mediaSection}>
-            <ImagePickerButton
-              imageUris={imageUris}
-              onImagesSelected={handleImagesSelected}
-              onImageRemoved={handleImageRemoved}
-            />
-          </View>
-
-          {/* Category Selection */}
-          <View style={styles.categorySection}>
-            <DriftText variant="caption" color="tertiary" style={styles.categoryHeading}>
-              CATEGORY
-            </DriftText>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.categoryList}
-            >
-              {categories.map((cat) => {
-                const isSelected = selectedCategoryId === cat.id;
-                return (
-                  <TouchableOpacity
-                    key={cat.id}
-                    activeOpacity={0.7}
-                    onPress={() => setSelectedCategoryId(isSelected ? null : cat.id)}
-                    style={[
-                      styles.categoryChip,
-                      {
-                        backgroundColor: isSelected ? `${cat.color}25` : theme.surfaceElevated,
-                        borderColor: isSelected ? cat.color : theme.borderSubtle,
-                      },
-                    ]}
-                  >
-                    <View style={[styles.catDot, { backgroundColor: cat.color }]} />
-                    <DriftText
-                      variant="caption"
-                      style={{
-                        color: isSelected ? cat.color : theme.textSecondary,
-                        fontWeight: isSelected ? '600' : '400',
-                      }}
-                    >
-                      {cat.name}
-                    </DriftText>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          </View>
-        </ScrollView>
+          >
+            Keep
+          </Text>
+        </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  modalBackdrop: {
+  root: {
     flex: 1,
-    justifyContent: 'flex-end',
   },
-  sheetContainer: {
-    borderTopLeftRadius: DriftTokens.radius.xl,
-    borderTopRightRadius: DriftTokens.radius.xl,
-    paddingTop: 12,
-    paddingBottom: Platform.OS === 'ios' ? 36 : 20,
-    maxHeight: '90%',
-    minHeight: '60%',
-  },
-  topHandleBar: {
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingBottom: 12,
+    paddingHorizontal: spacing.screen,
+    paddingTop: Platform.OS === 'ios' ? 56 : spacing.lg,
+    paddingBottom: spacing.sm,
   },
-  sheetHandle: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  handleIndicator: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-  },
-  iconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  saveButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  closeBtn: {
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
   scrollContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 30,
-  },
-  prompt: {
-    fontSize: 19,
-    fontWeight: '600',
-    letterSpacing: -0.3,
-    marginTop: 6,
-    marginBottom: 14,
+    paddingHorizontal: spacing.screen,
+    paddingBottom: spacing.xxl,
+    flexGrow: 1,
   },
   textInput: {
-    fontSize: 16,
-    lineHeight: 24,
-    minHeight: 120,
-    maxHeight: 240,
+    minHeight: 160,
     padding: 0,
-    marginBottom: 16,
+    marginTop: spacing.sm,
   },
-  mediaSection: {
-    marginBottom: 12,
+  attachedCategory: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.lg,
   },
-  categorySection: {
-    marginTop: 10,
-  },
-  categoryHeading: {
-    marginBottom: 8,
-    letterSpacing: 0.6,
+  glowDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: spacing.xs,
   },
   categoryList: {
     flexDirection: 'row',
-    gap: 8,
+    flexWrap: 'wrap',
+    marginTop: spacing.lg,
+    gap: spacing.sm,
   },
   categoryChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 7,
-    paddingHorizontal: 13,
-    borderRadius: DriftTokens.radius.full,
-    borderWidth: 1,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.pill,
   },
-  catDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginRight: 6,
+  bottomArea: {
+    paddingHorizontal: spacing.screen,
+    paddingBottom: Platform.OS === 'ios' ? spacing.xxl : spacing.lg,
+    gap: spacing.md,
+  },
+  toolbar: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: spacing.lg,
+  },
+  toolBtn: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  keepButton: {
+    height: 50,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

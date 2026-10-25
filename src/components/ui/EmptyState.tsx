@@ -1,76 +1,51 @@
 import React from 'react';
-import { View, StyleSheet, TouchableOpacity } from 'react-native';
-import { Wind } from 'lucide-react-native';
+import { View, StyleSheet } from 'react-native';
+import { Mote } from '@/components/Mote';
 import { useTheme } from '@/theme/ThemeContext';
-import { DriftTokens } from '@/theme/tokens';
+import { type as typeTokens, spacing } from '@/theme/tokens';
 import { DriftText } from './DriftText';
-import { DriftButton } from './DriftButton';
 
-interface EmptyStateProps {
-  onCapturePress: () => void;
-}
-
-export const EmptyState: React.FC<EmptyStateProps> = ({ onCapturePress }) => {
-  const { theme } = useTheme();
+/**
+ * Empty state for Home. Shows Mote at rest, DESIGN.md §6.4 copy.
+ * No buttons — capture bar stays at the bottom of Home.
+ */
+export function EmptyState() {
+  const { colors } = useTheme();
 
   return (
     <View style={styles.container}>
-      <View
-        style={[
-          styles.iconRing,
-          {
-            backgroundColor: theme.surface,
-            borderColor: theme.borderSubtle,
-          },
-        ]}
+      <Mote state="rest" size={120} label="Drift mascot" />
+      <DriftText
+        variant="prompt"
+        style={[styles.heading, { color: colors.text }]}
       >
-        <Wind size={32} color={theme.accent} strokeWidth={1.5} />
-      </View>
-
-      <DriftText variant="title" color="primary" center style={styles.heading}>
-        Nothing captured yet.
+        Your first thought is waiting.
       </DriftText>
-
-      <DriftText variant="bodySmall" color="secondary" center style={styles.subheading}>
-        Thoughts drift in and out of our minds. Capture whatever is with you right now.
+      <DriftText
+        variant="ui"
+        style={[styles.subheading, { color: colors.muted }]}
+      >
+        Capture a moment whenever it drifts in.
       </DriftText>
-
-      <DriftButton
-        label="Capture a moment"
-        onPress={onCapturePress}
-        variant="primary"
-        size="md"
-        style={styles.button}
-      />
     </View>
   );
-};
+}
 
 const styles = StyleSheet.create({
   container: {
-    paddingVertical: 64,
-    paddingHorizontal: 32,
+    paddingVertical: 80,
+    paddingHorizontal: spacing.xxl,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  iconRing: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 24,
   },
   heading: {
-    marginBottom: 8,
+    marginTop: spacing.xl,
+    textAlign: 'center',
+    fontSize: 21,
   },
   subheading: {
+    marginTop: spacing.sm,
+    textAlign: 'center',
     maxWidth: 260,
-    lineHeight: 22,
-    marginBottom: 28,
-  },
-  button: {
-    minWidth: 180,
   },
 });

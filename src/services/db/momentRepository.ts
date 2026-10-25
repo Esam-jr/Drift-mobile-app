@@ -275,6 +275,7 @@ export function groupMomentsByDate(moments: Moment[]): DateGroupedMoments[] {
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const yesterdayStart = todayStart - 24 * 60 * 60 * 1000;
+  const sixDaysAgo = todayStart - 6 * 24 * 60 * 60 * 1000;
 
   for (const moment of moments) {
     const momentDate = new Date(moment.createdAt);
@@ -285,11 +286,21 @@ export function groupMomentsByDate(moments: Moment[]): DateGroupedMoments[] {
       label = 'Today';
     } else if (dayStart === yesterdayStart) {
       label = 'Yesterday';
-    } else {
+    } else if (dayStart >= sixDaysAgo) {
+      // Weekday name for 2-6 days ago
+      label = momentDate.toLocaleDateString(undefined, { weekday: 'long' });
+    } else if (momentDate.getFullYear() === now.getFullYear()) {
+      // Same year: "September 4"
       label = momentDate.toLocaleDateString(undefined, {
         month: 'long',
         day: 'numeric',
-        year: momentDate.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
+      });
+    } else {
+      // Different year: "September 4, 2025"
+      label = momentDate.toLocaleDateString(undefined, {
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric',
       });
     }
 
@@ -300,6 +311,5 @@ export function groupMomentsByDate(moments: Moment[]): DateGroupedMoments[] {
     groups.get(key)!.moments.push(moment);
   }
 
-  // Sort groups by timestamp descending
   return Array.from(groups.values()).sort((a, b) => b.timestamp - a.timestamp);
 }

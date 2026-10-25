@@ -8,11 +8,17 @@
     "scheme": "drift",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "bundleIdentifier": "com.drift.journal",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Drift needs microphone access to record a voice moment.",
+        "NSCameraUsageDescription": "Drift needs camera access so you can take photos for your moments.",
+        "NSPhotoLibraryUsageDescription": "Drift needs access to your photos to add them to a moment.",
+        "NSFaceIDUsageDescription": "Allow Drift to use Face ID for fast and private unlocking."
+      }
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#13121B",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -28,9 +34,9 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "backgroundColor": "#13121B",
+          "image": "./assets/images/icon.png",
+          "imageWidth": 120
         }
       ],
       "expo-sqlite",
