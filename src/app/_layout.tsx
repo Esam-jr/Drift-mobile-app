@@ -2,10 +2,11 @@ import React, { useEffect, useCallback, useState } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { View, StyleSheet, AppState, Modal } from 'react-native';
+import { View, StyleSheet, AppState, Modal, Platform } from 'react-native';
 import { useFonts, Newsreader_400Regular, Newsreader_400Regular_Italic } from '@expo-google-fonts/newsreader';
 import { Figtree_400Regular, Figtree_500Medium } from '@expo-google-fonts/figtree';
 import * as SplashScreen from 'expo-splash-screen';
+import * as ScreenCapture from 'expo-screen-capture';
 import { ThemeProvider, useTheme } from '@/theme/ThemeContext';
 import { SecurityProvider } from '@/services/security/SecurityContext';
 import { LockScreenModal } from '@/components/security/LockScreenModal';
@@ -25,7 +26,26 @@ function RootNavigator() {
     ensureMediaDirectoryExists().catch((e) => console.warn('Media dir init error:', e));
   }, []);
 
-  // Background blanking: blank screen whenever app is inactive or in background per DESIGN.md §6.1
+  // Native OS-level app switcher & privacy protection per DESIGN.md §6.1
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+
+    // iOS: Native blur protection overlay when app is in switcher/inactive
+    if (Platform.OS === 'ios' && ScreenCapture.enableAppSwitcherProtectionAsync) {
+      ScreenCapture.enableAppSwitcherProtectionAsync(0.95).catch((err) =>
+        console.warn('Could not enable iOS app switcher protection:', err)
+      );
+    }
+
+    // Android: FLAG_SECURE prevents screenshots and blanks recents/app switcher preview
+    if (Platform.OS === 'android' && ScreenCapture.preventScreenCaptureAsync) {
+      ScreenCapture.preventScreenCaptureAsync().catch((err) =>
+        console.warn('Could not enable Android screen protection:', err)
+      );
+    }
+  }, []);
+
+  // In-app fallback blanking: renders whenever app is inactive or in background
   useEffect(() => {
     const sub = AppState.addEventListener('change', (nextState) => {
       setIsBackgrounded(nextState === 'inactive' || nextState === 'background');
@@ -75,9 +95,7 @@ function RootNavigator() {
       <LockScreenModal />
       <CreatePasscodeModal />
 
-      {/* Privacy blanking shield in app switcher per DESIGN.md §6.1:
-          Uses both an absoluteFill View and a top-level native Modal so all native
-          sub-views (modals, stack screens) are covered in the OS App Switcher preview. */}
+      {/* Privacy blanking shield in app switcher */}
       {isBackgrounded && (
         <>
           <View

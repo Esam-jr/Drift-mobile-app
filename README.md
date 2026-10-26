@@ -4,23 +4,6 @@
 
 Drift is a calm, offline-first, private personal journal and thought-capture application built with React Native and Expo. It is designed to capture thoughts, voice recordings, and memories effortlessly without requiring accounts, internet connectivity, or complicated productivity workflows.
 
----
-
-## 📖 Technical Documentation
-
-Comprehensive technical documentation is available in the [`docs/`](./docs) directory:
-
-| Document | Description |
-| :--- | :--- |
-| **[Architecture & Technical Design](./docs/ARCHITECTURE.md)** | Core architectural principles, high-level system diagrams, component layers, data flows, and runtime state machines. |
-| **[Data Model & Storage Specification](./docs/DATA_MODEL.md)** | Relational SQLite schema, file system media directory architecture, indices, TypeScript contracts, and deletion lifecycle. |
-| **[Security & Privacy Architecture](./docs/SECURITY_AND_PRIVACY.md)** | Threat model, salted SHA-256 PIN hashing, hardware-backed secure storage, biometric unlock pipeline, and app-lock lifecycle. |
-| **[Media Subsystem Guide](./docs/MEDIA_SUBSYSTEM.md)** | Audio capture & playback pipeline (`expo-audio`), image acquisition (`expo-image-picker`), sandboxed persistence, and disk quota monitoring. |
-| **[Developer & Operations Guide](./docs/DEVELOPMENT_GUIDE.md)** | Setup instructions, directory tour, design system tokens, theming conventions, and debugging workflows. |
-| **[Product Philosophy (`agent.md`)](./agent.md)** | The original design manifesto, product principles, UX guidelines, and vision for Drift. |
-
----
-
 ## ✨ Key Features
 
 - **Moment-Based Capture**: Rapidly record a thought, spoken voice memo, or photograph in seconds without tedious metadata forms.
