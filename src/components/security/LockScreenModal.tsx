@@ -1,51 +1,130 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   TouchableOpacity,
   StyleSheet,
   Modal,
   Animated,
+  Text,
   Platform,
+  AccessibilityInfo,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { Lock, Fingerprint, Delete } from 'lucide-react-native';
+import { Delete, Fingerprint, ScanFace } from 'lucide-react-native';
 import { useTheme } from '@/theme/ThemeContext';
 import { useSecurity } from '@/services/security/SecurityContext';
-import { DriftTokens } from '@/theme/tokens';
-import { DriftText } from '../ui/DriftText';
+import { type as typeTokens, spacing, radius, motion } from '@/theme/tokens';
+import { Mote } from '@/components/Mote';
 
 export const LockScreenModal: React.FC = () => {
-  const { theme } = useTheme();
-  const { isLocked, unlockWithPin, triggerBiometrics, biometricsActive } = useSecurity();
+  const { colors } = useTheme();
+  const {
+    isLocked,
+    unlockWithPin,
+    triggerBiometrics,
+    biometricsActive,
+    biometricType,
+    hasBiometrics,
+    unlock,
+  } = useSecurity();
+
   const [pin, setPin] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [moteState, setMoteState] = useState<'asleep' | 'rest'>('asleep');
+  const [reduceMotion, setReduceMotion] = useState(false);
 
   const shakeAnim = useRef(new Animated.Value(0)).current;
+  const floatAnim = useRef(new Animated.Value(0)).current;
+  const fadeAnim = useRef(new Animated.Value(1)).current;
 
-  // Auto trigger biometrics on lock appearance if active
+  // Check reduced motion
   useEffect(() => {
-    if (isLocked && biometricsActive) {
-      triggerBiometrics();
-    }
-  }, [isLocked, biometricsActive, triggerBiometrics]);
+    AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
+    const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduceMotion);
+    return () => sub.remove();
+  }, []);
 
-  // Handle shake animation on wrong pin
+  // Float animation: translateY 3pt over 5s loop per DESIGN.md §7
+  useEffect(() => {
+    if (isLocked && !reduceMotion) {
+      const loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(floatAnim, {
+            toValue: -3,
+            duration: motion.float / 2,
+            useNativeDriver: true,
+          }),
+          Animated.timing(floatAnim, {
+            toValue: 3,
+            duration: motion.float / 2,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      loop.start();
+      return () => loop.stop();
+    } else {
+      floatAnim.setValue(0);
+    }
+  }, [isLocked, reduceMotion]);
+
+  // Reset state when lock screen appears
+  useEffect(() => {
+    if (isLocked) {
+      setPin('');
+      setErrorMsg(null);
+      setMoteState('asleep');
+      fadeAnim.setValue(1);
+
+      // Auto trigger biometrics on open if enabled per DESIGN.md §6.1
+      if (biometricsActive) {
+        handleBiometricUnlock();
+      }
+    }
+  }, [isLocked, biometricsActive]);
+
+  const handleBiometricUnlock = useCallback(async () => {
+    const success = await triggerBiometrics();
+    if (success) {
+      handleUnlockSuccess();
+    }
+  }, [triggerBiometrics]);
+
+  const handleUnlockSuccess = () => {
+    try {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (_) {}
+
+    // DESIGN.md §6.1: Mote swaps to rest for ~280ms, then fades into Home (~280ms)
+    setMoteState('rest');
+    setTimeout(() => {
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: motion.base,
+        useNativeDriver: true,
+      }).start(() => {
+        unlock();
+        setPin('');
+      });
+    }, motion.base);
+  };
+
   const shakeKeypad = () => {
     try {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } catch (_) {}
 
     Animated.sequence([
-      Animated.timing(shakeAnim, { toValue: 10, duration: 60, useNativeDriver: true }),
-      Animated.timing(shakeAnim, { toValue: -10, duration: 60, useNativeDriver: true }),
-      Animated.timing(shakeAnim, { toValue: 8, duration: 60, useNativeDriver: true }),
-      Animated.timing(shakeAnim, { toValue: -8, duration: 60, useNativeDriver: true }),
-      Animated.timing(shakeAnim, { toValue: 0, duration: 60, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 8, duration: 40, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: -8, duration: 40, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 6, duration: 40, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: -6, duration: 40, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 0, duration: 40, useNativeDriver: true }),
     ]).start();
   };
 
   const handleKeyPress = async (val: string) => {
-    if (pin.length >= 4) return;
+    if (pin.length >= 6) return;
 
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -55,16 +134,14 @@ export const LockScreenModal: React.FC = () => {
     setPin(nextPin);
     setErrorMsg(null);
 
-    if (nextPin.length === 4) {
+    // 6-digit passcode check
+    if (nextPin.length === 6) {
       const success = await unlockWithPin(nextPin);
       if (success) {
-        try {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        } catch (_) {}
-        setPin('');
+        handleUnlockSuccess();
       } else {
         shakeKeypad();
-        setErrorMsg('Incorrect passcode');
+        setErrorMsg("That passcode doesn't match. Try again.");
         setTimeout(() => {
           setPin('');
         }, 400);
@@ -84,29 +161,31 @@ export const LockScreenModal: React.FC = () => {
   if (!isLocked) return null;
 
   return (
-    <Modal visible={isLocked} animationType="fade" transparent={false}>
-      <View style={[styles.container, { backgroundColor: theme.background }]}>
-        {/* Header / Lock Icon */}
+    <Modal visible={isLocked} animationType="none" transparent={false}>
+      <Animated.View style={[styles.container, { backgroundColor: colors.bg, opacity: fadeAnim }]}>
+        {/* Header / Mote centered */}
         <View style={styles.header}>
-          <View style={[styles.iconBubble, { backgroundColor: theme.surfaceElevated }]}>
-            <Lock size={28} color={theme.accent} />
-          </View>
-          <DriftText variant="title" color="primary" center style={styles.title}>
-            Drift is locked
-          </DriftText>
-          <DriftText variant="bodySmall" color="secondary" center style={styles.subtitle}>
-            Enter your passcode to open your moments
-          </DriftText>
+          <Animated.View style={{ transform: [{ translateY: floatAnim }] }}>
+            <Mote state={moteState} size={110} label="Mote sleeping" />
+          </Animated.View>
+
+          <Text style={[typeTokens.dayHeading, styles.title, { color: colors.text }]}>
+            Welcome back
+          </Text>
+
+          <Text style={[typeTokens.meta, styles.hint, { color: colors.muted }]}>
+            {errorMsg ? errorMsg : 'Enter your passcode'}
+          </Text>
         </View>
 
-        {/* PIN Indicators */}
+        {/* Six PIN Indicators */}
         <Animated.View
           style={[
             styles.dotsRow,
             { transform: [{ translateX: shakeAnim }] },
           ]}
         >
-          {[0, 1, 2, 3].map((index) => {
+          {[0, 1, 2, 3, 4, 5].map((index) => {
             const isFilled = pin.length > index;
             return (
               <View
@@ -114,8 +193,8 @@ export const LockScreenModal: React.FC = () => {
                 style={[
                   styles.dot,
                   {
-                    backgroundColor: isFilled ? theme.accent : 'transparent',
-                    borderColor: isFilled ? theme.accent : theme.border,
+                    backgroundColor: isFilled ? colors.accent : 'transparent',
+                    borderColor: isFilled ? colors.accent : colors.hairline,
                   },
                 ]}
               />
@@ -123,16 +202,7 @@ export const LockScreenModal: React.FC = () => {
           })}
         </Animated.View>
 
-        {/* Error notice */}
-        {errorMsg ? (
-          <DriftText variant="caption" color="rose" center style={styles.errorText}>
-            {errorMsg}
-          </DriftText>
-        ) : (
-          <View style={styles.errorPlaceholder} />
-        )}
-
-        {/* Keypad */}
+        {/* 3x4 Keypad with 46pt round buttons */}
         <View style={styles.keypad}>
           {[
             ['1', '2', '3'],
@@ -140,55 +210,63 @@ export const LockScreenModal: React.FC = () => {
             ['7', '8', '9'],
           ].map((row, rIdx) => (
             <View key={rIdx} style={styles.keypadRow}>
-              {row.map((num) => (
+              {row.map((val) => (
                 <TouchableOpacity
-                  key={num}
-                  activeOpacity={0.65}
-                  onPress={() => handleKeyPress(num)}
-                  style={[styles.keyButton, { backgroundColor: theme.surface }]}
+                  key={val}
+                  activeOpacity={0.7}
+                  onPress={() => handleKeyPress(val)}
+                  accessibilityLabel={`Digit ${val}`}
+                  style={[styles.key, { backgroundColor: colors.surface }]}
                 >
-                  <DriftText variant="title" color="primary">
-                    {num}
-                  </DriftText>
+                  <Text style={[typeTokens.ui, styles.keyText, { color: colors.text }]}>
+                    {val}
+                  </Text>
                 </TouchableOpacity>
               ))}
             </View>
           ))}
 
-          {/* Bottom row: Biometrics, 0, Backspace */}
+          {/* Bottom row: biometric button, 0, delete */}
           <View style={styles.keypadRow}>
-            {biometricsActive ? (
+            {biometricsActive && hasBiometrics ? (
               <TouchableOpacity
                 activeOpacity={0.7}
-                onPress={() => triggerBiometrics()}
-                style={[styles.keyButton, { backgroundColor: theme.surfaceElevated }]}
+                onPress={handleBiometricUnlock}
+                accessibilityLabel={`Unlock with ${biometricType}`}
+                style={[styles.key, { backgroundColor: colors.surface }]}
               >
-                <Fingerprint size={24} color={theme.accent} />
+                {biometricType === 'Face ID' ? (
+                  <ScanFace size={20} color={colors.text} strokeWidth={1.8} />
+                ) : (
+                  <Fingerprint size={20} color={colors.text} strokeWidth={1.8} />
+                )}
               </TouchableOpacity>
             ) : (
-              <View style={styles.keyPlaceholder} />
+              <View style={styles.keySpacer} />
             )}
 
             <TouchableOpacity
-              activeOpacity={0.65}
+              activeOpacity={0.7}
               onPress={() => handleKeyPress('0')}
-              style={[styles.keyButton, { backgroundColor: theme.surface }]}
+              accessibilityLabel="Digit 0"
+              style={[styles.key, { backgroundColor: colors.surface }]}
             >
-              <DriftText variant="title" color="primary">
+              <Text style={[typeTokens.ui, styles.keyText, { color: colors.text }]}>
                 0
-              </DriftText>
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               activeOpacity={0.7}
               onPress={handleDelete}
-              style={[styles.keyButton, { backgroundColor: 'transparent' }]}
+              accessibilityLabel="Delete digit"
+              style={[styles.key, { backgroundColor: colors.surface }]}
             >
-              <Delete size={22} color={theme.textSecondary} />
+              <Delete size={20} color={colors.text} strokeWidth={1.8} />
             </TouchableOpacity>
           </View>
         </View>
-      </View>
+      </Animated.View>
     </Modal>
   );
 };
@@ -196,66 +274,56 @@ export const LockScreenModal: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingHorizontal: 32,
-    justifyContent: 'space-around',
     alignItems: 'center',
-    paddingVertical: 50,
+    justifyContent: 'space-between',
+    paddingTop: Platform.OS === 'ios' ? spacing.huge * 1.5 : spacing.huge,
+    paddingBottom: Platform.OS === 'ios' ? spacing.huge * 1.2 : spacing.xxl,
   },
   header: {
     alignItems: 'center',
   },
-  iconBubble: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-  },
   title: {
-    marginBottom: 6,
+    marginTop: spacing.lg,
   },
-  subtitle: {
-    maxWidth: 240,
+  hint: {
+    marginTop: spacing.xs,
+    height: 20,
   },
   dotsRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'center',
-    marginVertical: 20,
-    gap: 18,
+    gap: spacing.md,
+    marginVertical: spacing.xl,
   },
   dot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
     borderWidth: 1.5,
   },
-  errorText: {
-    height: 20,
-    marginBottom: 10,
-  },
-  errorPlaceholder: {
-    height: 20,
-    marginBottom: 10,
-  },
   keypad: {
-    width: '100%',
-    maxWidth: 280,
-    gap: 16,
+    width: 250,
+    gap: spacing.md,
   },
   keypadRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
   },
-  keyButton: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+  key: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  keyPlaceholder: {
-    width: 72,
-    height: 72,
+  keySpacer: {
+    width: 46,
+    height: 46,
+  },
+  keyText: {
+    fontSize: 20,
+    lineHeight: 24,
   },
 });

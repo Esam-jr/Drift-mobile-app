@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   ScrollView,
@@ -6,46 +6,40 @@ import {
   StyleSheet,
   TouchableOpacity,
   Alert,
-  Modal,
   Platform,
   StatusBar,
   Text,
+  ActionSheetIOS,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect, useRouter } from 'expo-router';
-import { ChevronLeft, Lock, Fingerprint, Download, X } from 'lucide-react-native';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { ChevronLeft } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/theme/ThemeContext';
-import { type as typeTokens, spacing, radius } from '@/theme/tokens';
 import { useSecurity } from '@/services/security/SecurityContext';
-import {
-  setupPasscode,
-  disableSecurity,
-  setBiometricsEnabled,
-  checkBiometricHardware,
-} from '@/services/security/securityService';
-import { getMediaStorageStats } from '@/services/media/mediaService';
+import { type as typeTokens, spacing, radius } from '@/theme/tokens';
 import { getAllMoments } from '@/services/db/momentRepository';
+import { LockTimeout } from '@/services/security/securityService';
 
 export default function SettingsScreen() {
-  const { colors } = useTheme();
+  const { colors, mode, setMode } = useTheme();
   const router = useRouter();
-  const { isSecured, biometricsActive, refreshSecurityStatus, lock } = useSecurity();
+  const {
+    isSecured,
+    biometricsActive,
+    biometricType,
+    hasBiometrics,
+    lockTimeout,
+    startPasscodeSetup,
+    disablePasscode,
+    updateLockTimeout,
+    updateBiometricsEnabled,
+  } = useSecurity();
 
-  const [biometricType, setBiometricType] = useState('Biometrics');
-  const [hasBiometrics, setHasBiometrics] = useState(false);
-  const [momentCount, setMomentCount] = useState(0);
-
-  const [pinModalVisible, setPinModalVisible] = useState(false);
-  const [tempPin, setTempPin] = useState('');
-  const [confirmPin, setConfirmPin] = useState('');
-  const [step, setStep] = useState<'first' | 'confirm'>('first');
+  const [momentCount, setMomentCount] = useState<number>(0);
 
   const loadSettingsData = useCallback(async () => {
     try {
-      const bioInfo = await checkBiometricHardware();
-      setHasBiometrics(bioInfo.hasHardware && bioInfo.isEnrolled);
-      setBiometricType(bioInfo.biometricType);
       const moments = await getAllMoments();
       setMomentCount(moments.length);
     } catch (err) {
@@ -59,25 +53,24 @@ export default function SettingsScreen() {
     }, [loadSettingsData])
   );
 
-  const handleToggleSecurity = (value: boolean) => {
-    try { Haptics.selectionAsync(); } catch (_) {}
-    if (value) {
-      setTempPin('');
-      setConfirmPin('');
-      setStep('first');
-      setPinModalVisible(true);
+  const handlePasscodePress = () => {
+    try {
+      Haptics.selectionAsync();
+    } catch (_) {}
+
+    if (!isSecured) {
+      startPasscodeSetup();
     } else {
       Alert.alert(
-        'Disable Passcode?',
+        'Turn off passcode?',
         'Your moments will no longer be locked when Drift opens.',
         [
           { text: 'Cancel', style: 'cancel' },
           {
-            text: 'Disable',
+            text: 'Turn off',
             style: 'destructive',
             onPress: async () => {
-              await disableSecurity();
-              await refreshSecurityStatus();
+              await disablePasscode();
             },
           },
         ]
@@ -86,51 +79,99 @@ export default function SettingsScreen() {
   };
 
   const handleToggleBiometrics = async (value: boolean) => {
-    try { Haptics.selectionAsync(); } catch (_) {}
-    await setBiometricsEnabled(value);
-    await refreshSecurityStatus();
+    try {
+      Haptics.selectionAsync();
+    } catch (_) {}
+    await updateBiometricsEnabled(value);
   };
 
-  const handlePinKey = async (num: string) => {
-    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch (_) {}
-    if (step === 'first') {
-      const next = tempPin + num;
-      setTempPin(next);
-      if (next.length === 4) setStep('confirm');
-    } else {
-      const next = confirmPin + num;
-      setConfirmPin(next);
-      if (next.length === 4) {
-        if (next === tempPin) {
-          await setupPasscode(next, hasBiometrics);
-          await refreshSecurityStatus();
-          setPinModalVisible(false);
-        } else {
-          Alert.alert('That passcode doesn\'t match. Try again.');
-          setTempPin('');
-          setConfirmPin('');
-          setStep('first');
+  const handleLockTimeoutPress = () => {
+    try {
+      Haptics.selectionAsync();
+    } catch (_) {}
+
+    const options: { label: string; value: LockTimeout }[] = [
+      { label: 'When I leave', value: 'immediately' },
+      { label: 'After 1 minute', value: '1min' },
+      { label: 'Never', value: 'never' },
+    ];
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Cancel', 'When I leave', 'After 1 minute', 'Never'],
+          cancelButtonIndex: 0,
+        },
+        async (index) => {
+          if (index >= 1 && index <= 3) {
+            await updateLockTimeout(options[index - 1].value);
+          }
         }
-      }
+      );
+    } else {
+      Alert.alert('Lock Drift', undefined, [
+        { text: 'When I leave', onPress: () => updateLockTimeout('immediately') },
+        { text: 'After 1 minute', onPress: () => updateLockTimeout('1min') },
+        { text: 'Never', onPress: () => updateLockTimeout('never') },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
     }
   };
 
-  const handlePinDelete = () => {
-    if (step === 'first') {
-      setTempPin((p) => p.slice(0, -1));
+  const handleThemePress = () => {
+    try {
+      Haptics.selectionAsync();
+    } catch (_) {}
+
+    const modes: { label: string; value: 'system' | 'light' | 'dark' }[] = [
+      { label: 'Match my phone', value: 'system' },
+      { label: 'Light', value: 'light' },
+      { label: 'Dark', value: 'dark' },
+    ];
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Cancel', 'Match my phone', 'Light', 'Dark'],
+          cancelButtonIndex: 0,
+        },
+        (index) => {
+          if (index >= 1 && index <= 3) {
+            setMode(modes[index - 1].value);
+          }
+        }
+      );
     } else {
-      setConfirmPin((p) => p.slice(0, -1));
+      Alert.alert('Theme', undefined, [
+        { text: 'Match my phone', onPress: () => setMode('system') },
+        { text: 'Light', onPress: () => setMode('light') },
+        { text: 'Dark', onPress: () => setMode('dark') },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
     }
   };
+
+  const lockTimeoutLabel = {
+    immediately: 'When I leave',
+    '1min': 'After 1 minute',
+    never: 'Never',
+  }[lockTimeout];
+
+  const themeLabel = {
+    system: 'Match my phone',
+    light: 'Light',
+    dark: 'Dark',
+  }[mode];
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: colors.bg }]}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: colors.bg }]} edges={['top']}>
       <View style={styles.container}>
-        {/* Header */}
+        {/* Header: back chevron + serif title */}
         <View style={styles.header}>
           <TouchableOpacity
             activeOpacity={0.7}
             onPress={() => router.back()}
+            accessibilityLabel="Back to moments"
             style={styles.backBtn}
           >
             <ChevronLeft size={24} color={colors.text} strokeWidth={1.8} />
@@ -141,19 +182,28 @@ export default function SettingsScreen() {
           <View style={{ width: 44 }} />
         </View>
 
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
-          {/* Privacy */}
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.content}
+        >
+          {/* Privacy Section */}
           <Text style={[typeTokens.dayHeading, styles.sectionTitle, { color: colors.text }]}>
             Privacy
           </Text>
 
-          {/* Passcode */}
-          <View style={[styles.row, { borderBottomColor: colors.hairline }]}>
+          {/* Passcode row */}
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={handlePasscodePress}
+            style={[styles.row, { borderBottomColor: colors.hairline }]}
+          >
             <Text style={[typeTokens.ui, { color: colors.text }]}>Passcode</Text>
-            <Text style={[typeTokens.ui, { color: colors.muted }]}>
+            <Text style={[typeTokens.ui, { color: isSecured ? colors.text : colors.muted }]}>
               {isSecured ? 'On' : 'Off'}
             </Text>
-          </View>
+          </TouchableOpacity>
+
+          {/* Unlock with Biometrics */}
           <View style={[styles.row, { borderBottomColor: colors.hairline }]}>
             <Text style={[typeTokens.ui, { color: colors.text }]}>
               Unlock with {biometricType}
@@ -168,93 +218,55 @@ export default function SettingsScreen() {
               <Text style={[typeTokens.ui, { color: colors.muted }]}>—</Text>
             )}
           </View>
+
+          {/* Lock Drift */}
           {isSecured && (
-            <View style={[styles.row, { borderBottomColor: colors.hairline }]}>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={handleLockTimeoutPress}
+              style={[styles.row, { borderBottomColor: colors.hairline }]}
+            >
               <Text style={[typeTokens.ui, { color: colors.text }]}>Lock Drift</Text>
-              <Text style={[typeTokens.ui, { color: colors.muted }]}>When I leave</Text>
-            </View>
+              <Text style={[typeTokens.ui, { color: colors.muted }]}>
+                {lockTimeoutLabel}
+              </Text>
+            </TouchableOpacity>
           )}
 
-          {/* Appearance */}
+          {/* Appearance Section */}
           <Text style={[typeTokens.dayHeading, styles.sectionTitle, { color: colors.text }]}>
             Appearance
           </Text>
-          <View style={[styles.row, { borderBottomColor: colors.hairline }]}>
-            <Text style={[typeTokens.ui, { color: colors.text }]}>Theme</Text>
-            <Text style={[typeTokens.ui, { color: colors.muted }]}>Match my phone</Text>
-          </View>
 
-          {/* Your moments */}
+          {/* Theme row */}
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={handleThemePress}
+            style={[styles.row, { borderBottomColor: colors.hairline }]}
+          >
+            <Text style={[typeTokens.ui, { color: colors.text }]}>Theme</Text>
+            <Text style={[typeTokens.ui, { color: colors.muted }]}>{themeLabel}</Text>
+          </TouchableOpacity>
+
+          {/* Your Moments Section */}
           <Text style={[typeTokens.dayHeading, styles.sectionTitle, { color: colors.text }]}>
             Your moments
           </Text>
+
+          {/* Export */}
           <View style={[styles.row, { borderBottomColor: colors.hairline }]}>
             <Text style={[typeTokens.ui, { color: colors.text }]}>Export</Text>
-            <Text style={[typeTokens.ui, { color: colors.muted }]}>{momentCount} moments</Text>
+            <Text style={[typeTokens.ui, { color: colors.muted }]}>
+              {momentCount} {momentCount === 1 ? 'moment' : 'moments'}
+            </Text>
           </View>
+
+          {/* Backup */}
           <View style={[styles.row, { borderBottomColor: colors.hairline }]}>
             <Text style={[typeTokens.ui, { color: colors.text }]}>Backup</Text>
             <Text style={[typeTokens.ui, { color: colors.muted }]}>Off</Text>
           </View>
         </ScrollView>
-
-        {/* PIN Modal */}
-        <Modal visible={pinModalVisible} animationType="slide" transparent>
-          <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
-            <View style={[styles.modalCard, { backgroundColor: colors.surface }]}>
-              <View style={styles.modalHeader}>
-                <TouchableOpacity onPress={() => setPinModalVisible(false)}>
-                  <X size={20} color={colors.muted} />
-                </TouchableOpacity>
-                <Text style={[typeTokens.uiMedium, { color: colors.text }]}>
-                  {step === 'first' ? 'Create a passcode' : 'Enter it once more'}
-                </Text>
-                <View style={{ width: 20 }} />
-              </View>
-
-              <View style={styles.dots}>
-                {[0, 1, 2, 3].map((i) => {
-                  const pin = step === 'first' ? tempPin : confirmPin;
-                  return (
-                    <View
-                      key={i}
-                      style={[
-                        styles.dot,
-                        {
-                          backgroundColor: pin.length > i ? colors.accent : 'transparent',
-                          borderColor: pin.length > i ? colors.accent : colors.hairline,
-                        },
-                      ]}
-                    />
-                  );
-                })}
-              </View>
-
-              <View style={styles.keypad}>
-                {[['1','2','3'],['4','5','6'],['7','8','9'],['','0','⌫']].map((row, ri) => (
-                  <View key={ri} style={styles.keyRow}>
-                    {row.map((k, ci) =>
-                      k === '' ? (
-                        <View key={`e${ci}`} style={styles.emptyKey} />
-                      ) : (
-                        <TouchableOpacity
-                          key={k}
-                          activeOpacity={0.7}
-                          onPress={() => k === '⌫' ? handlePinDelete() : handlePinKey(k)}
-                          style={[styles.key, { backgroundColor: colors.surface }]}
-                        >
-                          <Text style={[typeTokens.dayHeading, { color: colors.text }]}>
-                            {k}
-                          </Text>
-                        </TouchableOpacity>
-                      )
-                    )}
-                  </View>
-                ))}
-              </View>
-            </View>
-          </View>
-        </Modal>
       </View>
     </SafeAreaView>
   );
@@ -263,20 +275,21 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
   },
-  container: { flex: 1 },
+  container: {
+    flex: 1,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.screen,
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.sm,
   },
   backBtn: {
     width: 44,
     height: 44,
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'center',
   },
   content: {
@@ -284,8 +297,8 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.huge,
   },
   sectionTitle: {
-    marginTop: spacing.xxl,
-    marginBottom: spacing.lg,
+    marginTop: spacing.xl,
+    marginBottom: spacing.sm,
   },
   row: {
     flexDirection: 'row',
@@ -293,53 +306,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: spacing.lg,
     borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  modalOverlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  modalCard: {
-    borderTopLeftRadius: radius.lg,
-    borderTopRightRadius: radius.lg,
-    padding: spacing.xl,
-    paddingBottom: spacing.huge,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.xl,
-  },
-  dots: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: spacing.lg,
-    marginBottom: spacing.xxl,
-  },
-  dot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    borderWidth: 1.5,
-  },
-  keypad: {
-    alignSelf: 'center',
-    width: 240,
-    gap: spacing.md,
-  },
-  keyRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  key: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptyKey: {
-    width: 64,
-    height: 64,
   },
 });

@@ -3,10 +3,13 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import * as Crypto from 'expo-crypto';
 import { Platform } from 'react-native';
 
-const KEY_PASSCODE_HASH = 'drift_pin_hash';
+const KEY_PASSCODE_HASH = 'drift_pin_hash_v2';
 const KEY_SECURITY_ENABLED = 'drift_security_active';
 const KEY_BIOMETRICS_ENABLED = 'drift_bio_active';
+const KEY_LOCK_TIMEOUT = 'drift_lock_timeout';
 const SALT = 'drift_private_journal_salt_2026';
+
+export type LockTimeout = 'immediately' | '1min' | 'never';
 
 // Fallback in-memory / local storage for web preview
 const webStorage = new Map<string, string>();
@@ -45,7 +48,7 @@ async function deleteStorageItem(key: string): Promise<void> {
 async function hashPin(pin: string): Promise<string> {
   return await Crypto.digestStringAsync(
     Crypto.CryptoDigestAlgorithm.SHA256,
-    `${SALT}_${pin}_drift`
+    `${SALT}_${pin}_drift_6digit`
   );
 }
 
@@ -66,6 +69,24 @@ export async function isBiometricsEnabled(): Promise<boolean> {
 }
 
 /**
+ * Gets the lock timeout setting ('immediately', '1min', 'never').
+ */
+export async function getLockTimeout(): Promise<LockTimeout> {
+  const timeout = await getStorageItem(KEY_LOCK_TIMEOUT);
+  if (timeout === '1min' || timeout === 'never' || timeout === 'immediately') {
+    return timeout;
+  }
+  return 'immediately';
+}
+
+/**
+ * Sets the lock timeout setting.
+ */
+export async function setLockTimeout(timeout: LockTimeout): Promise<void> {
+  await setStorageItem(KEY_LOCK_TIMEOUT, timeout);
+}
+
+/**
  * Checks biometric hardware capabilities on the device.
  */
 export async function checkBiometricHardware(): Promise<{
@@ -74,7 +95,7 @@ export async function checkBiometricHardware(): Promise<{
   biometricType: string;
 }> {
   if (Platform.OS === 'web') {
-    return { hasHardware: false, isEnrolled: false, biometricType: 'None' };
+    return { hasHardware: false, isEnrolled: false, biometricType: 'Biometrics' };
   }
 
   try {
@@ -86,17 +107,17 @@ export async function checkBiometricHardware(): Promise<{
     if (types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
       biometricType = 'Face ID';
     } else if (types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) {
-      biometricType = 'Fingerprint';
+      biometricType = Platform.OS === 'ios' ? 'Touch ID' : 'Fingerprint';
     }
 
     return { hasHardware, isEnrolled, biometricType };
   } catch (err) {
-    return { hasHardware: false, isEnrolled: false, biometricType: 'None' };
+    return { hasHardware: false, isEnrolled: false, biometricType: 'Biometrics' };
   }
 }
 
 /**
- * Sets up a new passcode and enables security.
+ * Sets up a 6-digit passcode and enables security.
  */
 export async function setupPasscode(pin: string, enableBiometrics: boolean = false): Promise<void> {
   const hashed = await hashPin(pin);
@@ -106,7 +127,7 @@ export async function setupPasscode(pin: string, enableBiometrics: boolean = fal
 }
 
 /**
- * Verifies if an entered PIN matches the stored hash.
+ * Verifies if an entered 6-digit PIN matches the stored hash.
  */
 export async function verifyPasscode(pin: string): Promise<boolean> {
   const storedHash = await getStorageItem(KEY_PASSCODE_HASH);
@@ -117,7 +138,7 @@ export async function verifyPasscode(pin: string): Promise<boolean> {
 }
 
 /**
- * Triggers device native biometric prompt (Face ID / Fingerprint).
+ * Triggers device native biometric prompt (Face ID / Touch ID / Fingerprint).
  */
 export async function authenticateWithBiometrics(): Promise<boolean> {
   if (Platform.OS === 'web') return false;
@@ -128,8 +149,8 @@ export async function authenticateWithBiometrics(): Promise<boolean> {
 
     const result = await LocalAuthentication.authenticateAsync({
       promptMessage: 'Unlock Drift',
-      cancelLabel: 'Use PIN',
-      fallbackLabel: 'Use PIN',
+      cancelLabel: 'Use passcode',
+      fallbackLabel: 'Use passcode',
       disableDeviceFallback: true,
     });
 
@@ -146,18 +167,6 @@ export async function disableSecurity(): Promise<void> {
   await deleteStorageItem(KEY_PASSCODE_HASH);
   await setStorageItem(KEY_SECURITY_ENABLED, 'false');
   await setStorageItem(KEY_BIOMETRICS_ENABLED, 'false');
-}
-
-/**
- * Changes existing passcode after confirming old PIN.
- */
-export async function changePasscode(oldPin: string, newPin: string): Promise<boolean> {
-  const isValid = await verifyPasscode(oldPin);
-  if (!isValid) return false;
-
-  const newHashed = await hashPin(newPin);
-  await setStorageItem(KEY_PASSCODE_HASH, newHashed);
-  return true;
 }
 
 /**
