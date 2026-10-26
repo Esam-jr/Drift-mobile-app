@@ -1,26 +1,27 @@
 import React from 'react';
-import { View, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, TouchableOpacity, StyleSheet, Text } from 'react-native';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
-import { Play, Pause } from 'lucide-react-native';
+import { Play, Pause, X } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/theme/ThemeContext';
-import { DriftTokens } from '@/theme/tokens';
-import { DriftText } from '../ui/DriftText';
+import { type as typeTokens, spacing, radius, hitSlop } from '@/theme/tokens';
 
 interface AudioPlayerProps {
   uri: string;
   durationMs?: number | null;
   compact?: boolean;
+  onRemove?: () => void;
 }
 
-const WAVEFORM_HEIGHTS = [8, 14, 20, 12, 18, 24, 16, 10, 22, 14, 18, 10, 16, 22, 12, 8];
+const WAVEFORM_HEIGHTS = [6, 12, 18, 10, 16, 22, 14, 8, 20, 12, 16, 8, 14, 20, 10, 6];
 
 export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   uri,
   durationMs,
   compact = false,
+  onRemove,
 }) => {
-  const { theme } = useTheme();
+  const { colors } = useTheme();
   const player = useAudioPlayer(uri ? { uri } : null);
   const status = useAudioPlayerStatus(player);
 
@@ -38,6 +39,10 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
       if (isPlaying) {
         player.pause();
       } else {
+        // If at the end, restart
+        if (totalSeconds > 0 && currentSeconds >= totalSeconds - 0.2) {
+          player.seekTo(0);
+        }
         player.play();
       }
     } catch (err) {
@@ -45,7 +50,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
     }
   };
 
-  const progress = totalSeconds > 0 ? currentSeconds / totalSeconds : 0;
+  const progress = totalSeconds > 0 ? Math.min(1, currentSeconds / totalSeconds) : 0;
 
   const formatTime = (secs: number) => {
     const total = Math.floor(secs);
@@ -54,38 +59,45 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
     return `${mins}:${rem < 10 ? '0' : ''}${rem}`;
   };
 
+  // "0:18 of 0:45" per DESIGN.md §6.6
+  const timeLabel = `${formatTime(currentSeconds)} of ${formatTime(totalSeconds)}`;
+
   return (
     <View
       style={[
         styles.container,
-        {
-          backgroundColor: theme.surfaceElevated,
-          borderColor: theme.borderSubtle,
-        },
+        compact ? styles.compactContainer : styles.fullContainer,
+        { backgroundColor: colors.surface },
       ]}
     >
       <TouchableOpacity
         activeOpacity={0.75}
         onPress={togglePlayback}
+        accessibilityLabel={isPlaying ? 'Pause voice moment' : 'Play voice moment'}
+        hitSlop={{ top: hitSlop / 4, bottom: hitSlop / 4, left: hitSlop / 4, right: hitSlop / 4 }}
         style={[
           styles.playButton,
-          {
-            backgroundColor: theme.accent,
-          },
+          compact ? styles.playButtonCompact : styles.playButtonFull,
+          { backgroundColor: colors.accent },
         ]}
       >
         {isPlaying ? (
-          <Pause size={14} color="#0B0D11" />
+          <Pause size={compact ? 12 : 14} color={colors.onAccent} />
         ) : (
-          <Play size={14} color="#0B0D11" fill="#0B0D11" style={{ marginLeft: 2 }} />
+          <Play
+            size={compact ? 12 : 14}
+            color={colors.onAccent}
+            fill={colors.onAccent}
+            style={{ marginLeft: 2 }}
+          />
         )}
       </TouchableOpacity>
 
-      {/* Simulated Waveform / Progress Bar */}
+      {/* Waveform track */}
       <View style={styles.waveContainer}>
         <View style={styles.waveBarsRow}>
           {WAVEFORM_HEIGHTS.map((height, i) => {
-            const barProgress = i / WAVEFORM_HEIGHTS.length;
+            const barProgress = (i + 1) / WAVEFORM_HEIGHTS.length;
             const isFilled = progress >= barProgress;
             return (
               <View
@@ -93,8 +105,8 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
                 style={[
                   styles.waveBar,
                   {
-                    height: compact ? Math.max(6, height * 0.7) : height,
-                    backgroundColor: isFilled ? theme.accent : theme.border,
+                    height: compact ? Math.max(5, height * 0.6) : height,
+                    backgroundColor: isFilled ? colors.accent : colors.muted + '40',
                   },
                 ]}
               />
@@ -103,9 +115,27 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
         </View>
       </View>
 
-      <DriftText variant="caption" color="secondary" style={styles.timer}>
-        {isPlaying ? formatTime(currentSeconds) : formatTime(totalSeconds)}
-      </DriftText>
+      <Text
+        style={[
+          typeTokens.meta,
+          styles.timeText,
+          { color: colors.muted },
+        ]}
+      >
+        {compact ? formatTime(totalSeconds) : timeLabel}
+      </Text>
+
+      {onRemove && (
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={onRemove}
+          accessibilityLabel="Remove audio"
+          hitSlop={{ top: hitSlop, bottom: hitSlop, left: hitSlop, right: hitSlop }}
+          style={styles.removeBtn}
+        >
+          <X size={16} color={colors.muted} />
+        </TouchableOpacity>
+      )}
     </View>
   );
 };
@@ -114,22 +144,34 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: DriftTokens.radius.md,
-    borderWidth: 1,
-    marginVertical: 4,
+    borderRadius: radius.pill,
+  },
+  compactContainer: {
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+  },
+  fullContainer: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    marginVertical: spacing.sm,
   },
   playButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  playButtonCompact: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+  },
+  playButtonFull: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+  },
   waveContainer: {
     flex: 1,
-    marginHorizontal: 12,
+    marginHorizontal: spacing.sm,
     justifyContent: 'center',
   },
   waveBarsRow: {
@@ -138,12 +180,15 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   waveBar: {
-    width: 3,
-    borderRadius: 2,
+    width: 2.5,
+    borderRadius: 1.5,
   },
-  timer: {
+  timeText: {
     fontVariant: ['tabular-nums'],
-    minWidth: 32,
-    textAlign: 'right',
+    marginLeft: spacing.xs,
+  },
+  removeBtn: {
+    marginLeft: spacing.sm,
+    padding: spacing.xs,
   },
 });

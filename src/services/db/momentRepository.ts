@@ -214,9 +214,6 @@ export async function createMoment(input: CreateMomentInput): Promise<Moment> {
   return created;
 }
 
-/**
- * Updates an existing moment.
- */
 export async function updateMoment(input: UpdateMomentInput): Promise<Moment> {
   const db = await getDatabase();
   const now = Date.now();
@@ -226,15 +223,61 @@ export async function updateMoment(input: UpdateMomentInput): Promise<Moment> {
     throw new Error(`Moment with id ${input.id} not found`);
   }
 
+  // Handle audio updating
+  let persistentAudioUri: string | null = existing.audioUri ?? null;
+  if (input.audioUri !== undefined) {
+    if (existing.audioUri && existing.audioUri !== input.audioUri) {
+      await deleteMediaFile(existing.audioUri);
+    }
+    if (input.audioUri) {
+      persistentAudioUri = input.audioUri.includes('drift_media')
+        ? input.audioUri
+        : await persistMediaFile(input.audioUri, 'audio');
+    } else {
+      persistentAudioUri = null;
+    }
+  }
+
+  // Handle images updating
+  if (input.imageUris !== undefined) {
+    const existingUris = existing.images.map((img) => img.uri);
+    for (const oldUri of existingUris) {
+      if (!input.imageUris.includes(oldUri)) {
+        await deleteMediaFile(oldUri);
+      }
+    }
+
+    await db.runAsync('DELETE FROM moment_images WHERE moment_id = ?;', input.id);
+
+    for (let i = 0; i < input.imageUris.length; i++) {
+      const uri = input.imageUris[i];
+      const savedUri = uri.includes('drift_media')
+        ? uri
+        : await persistMediaFile(uri, 'image');
+      const imgId = generateId();
+      await db.runAsync(
+        `INSERT INTO moment_images (id, moment_id, uri, order_index, created_at)
+         VALUES (?, ?, ?, ?, ?);`,
+        imgId,
+        input.id,
+        savedUri,
+        i,
+        now
+      );
+    }
+  }
+
   await db.runAsync(
     `UPDATE moments 
-     SET title = ?, text = ?, category_id = ?, updated_at = ?, location_name = ?
+     SET title = ?, text = ?, category_id = ?, updated_at = ?, location_name = ?, audio_uri = ?, audio_duration = ?
      WHERE id = ?;`,
     input.title !== undefined ? (input.title ?? null) : (existing.title ?? null),
     input.text !== undefined ? (input.text ?? null) : (existing.text ?? null),
     input.categoryId !== undefined ? (input.categoryId ?? null) : (existing.categoryId ?? null),
     now,
     input.locationName !== undefined ? (input.locationName ?? null) : (existing.locationName ?? null),
+    persistentAudioUri,
+    input.audioDuration !== undefined ? (input.audioDuration ?? null) : (existing.audioDuration ?? null),
     input.id
   );
 

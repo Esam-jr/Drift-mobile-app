@@ -9,20 +9,23 @@ import {
   Platform,
   Text,
   ActionSheetIOS,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { ChevronDown, MoreHorizontal } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/theme/ThemeContext';
 import { type as typeTokens, spacing, radius, hitSlop } from '@/theme/tokens';
 import { Moment } from '@/types/moment';
 import { getMomentById, deleteMoment } from '@/services/db/momentRepository';
+import { AudioPlayer } from '@/components/moment/AudioPlayer';
 
 export default function MomentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { colors } = useTheme();
+  const { width } = useWindowDimensions();
 
   const [moment, setMoment] = useState<Moment | null>(null);
   const [loading, setLoading] = useState(true);
@@ -43,6 +46,13 @@ export default function MomentDetailScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Reload when returning from edit screen
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
 
   const handleDelete = () => {
     Alert.alert(
@@ -125,6 +135,7 @@ export default function MomentDetailScreen() {
 
   const hasText = !!moment.text && moment.text.trim().length > 0;
   const hasImages = moment.images && moment.images.length > 0;
+  const photoWidth = width - spacing.screen * 2;
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: colors.bg }]} edges={['top']}>
@@ -179,16 +190,14 @@ export default function MomentDetailScreen() {
           </Text>
         )}
 
-        {/* Voice player — placeholder for Phase 4 */}
+        {/* Voice player per DESIGN.md §6.6 */}
         {moment.audioUri && (
-          <View style={[styles.voiceBlock, { backgroundColor: colors.surface }]}>
-            <Text style={[typeTokens.meta, { color: colors.muted }]}>
-              Voice moment · {moment.audioDuration ? formatDuration(moment.audioDuration) : '—'}
-            </Text>
+          <View style={styles.voiceWrapper}>
+            <AudioPlayer uri={moment.audioUri} durationMs={moment.audioDuration} />
           </View>
         )}
 
-        {/* Photos — scrollable with counter */}
+        {/* Photos — swipeable carousel with "1 of 3" label and page dots */}
         {hasImages && (
           <View style={styles.photosBlock}>
             <ScrollView
@@ -197,8 +206,7 @@ export default function MomentDetailScreen() {
               showsHorizontalScrollIndicator={false}
               onMomentumScrollEnd={(e) => {
                 const index = Math.round(
-                  e.nativeEvent.contentOffset.x /
-                    e.nativeEvent.layoutMeasurement.width
+                  e.nativeEvent.contentOffset.x / photoWidth
                 );
                 setPhotoIndex(index);
               }}
@@ -207,7 +215,7 @@ export default function MomentDetailScreen() {
                 <Image
                   key={img.id}
                   source={{ uri: img.uri }}
-                  style={styles.photo}
+                  style={[styles.photo, { width: photoWidth }]}
                   resizeMode="cover"
                 />
               ))}
@@ -252,13 +260,6 @@ export default function MomentDetailScreen() {
       </ScrollView>
     </SafeAreaView>
   );
-}
-
-function formatDuration(ms: number) {
-  const total = Math.floor(ms / 1000);
-  const mins = Math.floor(total / 60);
-  const secs = total % 60;
-  return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
 }
 
 const styles = StyleSheet.create({
@@ -308,19 +309,15 @@ const styles = StyleSheet.create({
   body: {
     marginBottom: spacing.xl,
   },
-  voiceBlock: {
-    borderRadius: radius.md,
-    padding: spacing.lg,
+  voiceWrapper: {
     marginBottom: spacing.xl,
   },
   photosBlock: {
     marginBottom: spacing.xl,
   },
   photo: {
-    width: 320,
-    height: 240,
+    height: 260,
     borderRadius: radius.md,
-    marginRight: spacing.md,
   },
   photoCounter: {
     marginTop: spacing.sm,
