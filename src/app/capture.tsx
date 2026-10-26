@@ -13,6 +13,8 @@ import {
   Linking,
   Animated,
   AccessibilityInfo,
+  Keyboard,
+  Easing,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import {
@@ -31,7 +33,7 @@ import {
   requestRecordingPermissionsAsync,
 } from 'expo-audio';
 import { useTheme } from '@/theme/ThemeContext';
-import { type as typeTokens, spacing, radius, hitSlop } from '@/theme/tokens';
+import { type as typeTokens, spacing, radius, hitSlop, motion } from '@/theme/tokens';
 import { Category, Moment } from '@/types/moment';
 import {
   getCategories,
@@ -68,6 +70,9 @@ export default function CaptureScreen() {
   const timerRef = useRef<any>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const [reduceMotion, setReduceMotion] = useState(false);
+
+  // Signature Keep Motion: drifts down 24pt, scales to 0.96, fades over ~520ms per DESIGN.md §7
+  const keepAnim = useRef(new Animated.Value(0)).current;
 
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
 
@@ -117,12 +122,14 @@ export default function CaptureScreen() {
         Animated.sequence([
           Animated.timing(pulseAnim, {
             toValue: 1.12,
-            duration: 1200,
+            duration: motion.recordingRing / 2,
+            easing: Easing.inOut(Easing.ease),
             useNativeDriver: true,
           }),
           Animated.timing(pulseAnim, {
             toValue: 1,
-            duration: 1200,
+            duration: motion.recordingRing / 2,
+            easing: Easing.inOut(Easing.ease),
             useNativeDriver: true,
           }),
         ])
@@ -312,15 +319,36 @@ export default function CaptureScreen() {
     }
   };
 
+  // ── Signature Keep Motion per DESIGN.md §7 ─────────────────────────
   const handleKeep = async () => {
-    if (!hasContent) return;
+    if (!hasContent || saving) return;
 
+    Keyboard.dismiss();
     setSaving(true);
-    try {
-      try {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      } catch (_) {}
 
+    try {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (_) {}
+
+    // Motion: drifts down 24pt, scales to 0.96, fades over ~520ms (ease-out)
+    const animPromise = new Promise<void>((resolve) => {
+      if (reduceMotion) {
+        Animated.timing(keepAnim, {
+          toValue: 1,
+          duration: motion.base,
+          useNativeDriver: true,
+        }).start(() => resolve());
+      } else {
+        Animated.timing(keepAnim, {
+          toValue: 1,
+          duration: motion.slow,
+          easing: Easing.out(Easing.ease),
+          useNativeDriver: true,
+        }).start(() => resolve());
+      }
+    });
+
+    const savePromise = (async () => {
       if (isEditing && params.editId) {
         await updateMoment({
           id: params.editId,
@@ -339,18 +367,36 @@ export default function CaptureScreen() {
           imageUris: imageUris.length > 0 ? imageUris : undefined,
         });
       }
+    })();
 
+    try {
+      await Promise.all([animPromise, savePromise]);
       router.back();
     } catch (err) {
       console.warn('Error saving moment:', err);
       Alert.alert('Error', 'Could not preserve moment. Please try again.');
       setSaving(false);
+      keepAnim.setValue(0);
     }
   };
 
   const toggleCategory = (id: string) => {
     setSelectedCategoryId((prev) => (prev === id ? null : id));
   };
+
+  // Signature drift interpolations
+  const driftY = keepAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 24],
+  });
+  const driftScale = keepAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 0.96],
+  });
+  const driftOpacity = keepAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 0],
+  });
 
   // ── Recording State View ──────────────────────────────────────────
   if (isRecording) {
@@ -410,206 +456,219 @@ export default function CaptureScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       style={[styles.root, { backgroundColor: colors.bg }]}
     >
-      {/* Top bar: close + timestamp */}
-      <View style={styles.topBar}>
-        <TouchableOpacity
-          activeOpacity={0.7}
-          onPress={handleClose}
-          accessibilityLabel="Close"
-          hitSlop={{ top: hitSlop, bottom: hitSlop, left: hitSlop, right: hitSlop }}
-          style={styles.closeBtn}
-        >
-          <X size={20} color={colors.muted} strokeWidth={1.8} />
-        </TouchableOpacity>
-        <Text style={[typeTokens.meta, { color: colors.muted }]}>
-          {nowLabel}
-        </Text>
-      </View>
-
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
+      <Animated.View
+        style={[
+          styles.animatedContent,
+          {
+            opacity: driftOpacity,
+            transform: [{ translateY: driftY }, { scale: driftScale }],
+          },
+        ]}
       >
-        {/* Multiline serif input */}
-        <TextInput
-          ref={textRef}
-          multiline
-          placeholder="What is drifting through your mind?"
-          placeholderTextColor={colors.muted}
-          value={text}
-          onChangeText={setText}
-          style={[
-            typeTokens.prompt,
-            styles.textInput,
-            { color: colors.text },
-          ]}
-          textAlignVertical="top"
-        />
-
-        {/* Attached Voice Pill */}
-        {audioUri && (
-          <View style={styles.attachedMediaBlock}>
-            <AudioPlayer
-              uri={audioUri}
-              durationMs={audioDuration}
-              onRemove={() => {
-                setAudioUri(null);
-                setAudioDuration(null);
-              }}
-            />
-          </View>
-        )}
-
-        {/* Attached Photo Thumbnails */}
-        {imageUris.length > 0 && (
-          <View style={styles.attachedMediaBlock}>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.photoThumbList}
-            >
-              {imageUris.map((uri, idx) => (
-                <View key={`${uri}-${idx}`} style={styles.photoThumbWrapper}>
-                  <Image source={{ uri }} style={styles.photoThumb} resizeMode="cover" />
-                  <TouchableOpacity
-                    activeOpacity={0.7}
-                    onPress={() => handleRemovePhoto(idx)}
-                    accessibilityLabel="Remove photo"
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    style={[styles.photoRemoveBadge, { backgroundColor: colors.surface }]}
-                  >
-                    <X size={12} color={colors.text} />
-                  </TouchableOpacity>
-                </View>
-              ))}
-            </ScrollView>
-          </View>
-        )}
-
-        {/* Attached category indicator */}
-        {selectedCategory && (
-          <View style={styles.attachedCategory}>
-            <View style={[styles.glowDot, { backgroundColor: colors.glow }]} />
-            <Text style={[typeTokens.meta, { color: colors.muted }]}>
-              {selectedCategory.name}
-            </Text>
-          </View>
-        )}
-
-        {/* Category picker */}
-        {showCategories && (
-          <View style={styles.categoryList}>
-            {categories.map((cat) => {
-              const isSelected = selectedCategoryId === cat.id;
-              return (
-                <TouchableOpacity
-                  key={cat.id}
-                  activeOpacity={0.7}
-                  onPress={() => toggleCategory(cat.id)}
-                  style={[
-                    styles.categoryChip,
-                    {
-                      backgroundColor: isSelected ? colors.accent + '20' : colors.surface,
-                    },
-                  ]}
-                >
-                  <View style={[styles.glowDot, { backgroundColor: colors.glow }]} />
-                  <Text
-                    style={[
-                      typeTokens.meta,
-                      { color: isSelected ? colors.accent : colors.muted },
-                    ]}
-                  >
-                    {cat.name}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        )}
-      </ScrollView>
-
-      {/* Bottom toolbar + Keep button */}
-      <View style={styles.bottomArea}>
-        {/* Four toolbar buttons: record, photos, category, location */}
-        <View style={styles.toolbar}>
+        {/* Top bar: close + timestamp */}
+        <View style={styles.topBar}>
           <TouchableOpacity
             activeOpacity={0.7}
-            onPress={startRecording}
-            accessibilityLabel="Record"
-            style={[styles.toolBtn, { backgroundColor: colors.accent }]}
+            onPress={handleClose}
+            accessibilityLabel="Close"
+            hitSlop={{ top: hitSlop, bottom: hitSlop, left: hitSlop, right: hitSlop }}
+            style={styles.closeBtn}
           >
-            <Mic size={20} color={colors.onAccent} strokeWidth={2} />
+            <X size={20} color={colors.muted} strokeWidth={1.8} />
           </TouchableOpacity>
-
-          <TouchableOpacity
-            activeOpacity={0.7}
-            onPress={handlePickPhotos}
-            accessibilityLabel="Add photos"
-            style={[styles.toolBtn, { backgroundColor: colors.surface }]}
-          >
-            <ImageLucide size={20} color={colors.muted} strokeWidth={1.8} />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            activeOpacity={0.7}
-            accessibilityLabel="Category"
-            onPress={() => setShowCategories(!showCategories)}
-            style={[
-              styles.toolBtn,
-              {
-                backgroundColor: showCategories ? colors.accent + '20' : colors.surface,
-              },
-            ]}
-          >
-            <Tag
-              size={20}
-              color={showCategories ? colors.accent : colors.muted}
-              strokeWidth={1.8}
-            />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            activeOpacity={0.7}
-            onPress={handleLocationPress}
-            accessibilityLabel="Location"
-            style={[styles.toolBtn, { backgroundColor: colors.surface }]}
-          >
-            <MapPin size={20} color={colors.muted} strokeWidth={1.8} />
-          </TouchableOpacity>
+          <Text style={[typeTokens.meta, { color: colors.muted }]}>
+            {nowLabel}
+          </Text>
         </View>
 
-        {/* Keep button: "Keep" or "Keep changes" */}
-        <TouchableOpacity
-          activeOpacity={0.75}
-          onPress={handleKeep}
-          disabled={saving || !hasContent}
-          style={[
-            styles.keepButton,
-            {
-              backgroundColor: hasContent ? colors.accent : colors.surface,
-            },
-          ]}
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
         >
-          <Text
+          {/* Multiline serif input */}
+          <TextInput
+            ref={textRef}
+            multiline
+            placeholder="What is drifting through your mind?"
+            placeholderTextColor={colors.muted}
+            value={text}
+            onChangeText={setText}
             style={[
-              typeTokens.uiMedium,
+              typeTokens.prompt,
+              styles.textInput,
+              { color: colors.text },
+            ]}
+            textAlignVertical="top"
+          />
+
+          {/* Attached Voice Pill */}
+          {audioUri && (
+            <View style={styles.attachedMediaBlock}>
+              <AudioPlayer
+                uri={audioUri}
+                durationMs={audioDuration}
+                onRemove={() => {
+                  setAudioUri(null);
+                  setAudioDuration(null);
+                }}
+              />
+            </View>
+          )}
+
+          {/* Attached Photo Thumbnails */}
+          {imageUris.length > 0 && (
+            <View style={styles.attachedMediaBlock}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.photoThumbList}
+              >
+                {imageUris.map((uri, idx) => (
+                  <View key={`${uri}-${idx}`} style={styles.photoThumbWrapper}>
+                    <Image source={{ uri }} style={styles.photoThumb} resizeMode="cover" />
+                    <TouchableOpacity
+                      activeOpacity={0.7}
+                      onPress={() => handleRemovePhoto(idx)}
+                      accessibilityLabel="Remove photo"
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      style={[styles.photoRemoveBadge, { backgroundColor: colors.surface }]}
+                    >
+                      <X size={12} color={colors.text} />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+
+          {/* Attached category indicator */}
+          {selectedCategory && (
+            <View style={styles.attachedCategory}>
+              <View style={[styles.glowDot, { backgroundColor: colors.glow }]} />
+              <Text style={[typeTokens.meta, { color: colors.muted }]}>
+                {selectedCategory.name}
+              </Text>
+            </View>
+          )}
+
+          {/* Category picker */}
+          {showCategories && (
+            <View style={styles.categoryList}>
+              {categories.map((cat) => {
+                const isSelected = selectedCategoryId === cat.id;
+                return (
+                  <TouchableOpacity
+                    key={cat.id}
+                    activeOpacity={0.7}
+                    onPress={() => toggleCategory(cat.id)}
+                    style={[
+                      styles.categoryChip,
+                      {
+                        backgroundColor: isSelected ? colors.accent + '20' : colors.surface,
+                      },
+                    ]}
+                  >
+                    <View style={[styles.glowDot, { backgroundColor: colors.glow }]} />
+                    <Text
+                      style={[
+                        typeTokens.meta,
+                        { color: isSelected ? colors.accent : colors.muted },
+                      ]}
+                    >
+                      {cat.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
+        </ScrollView>
+
+        {/* Bottom toolbar + Keep button */}
+        <View style={styles.bottomArea}>
+          {/* Four toolbar buttons: record, photos, category, location */}
+          <View style={styles.toolbar}>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={startRecording}
+              accessibilityLabel="Record"
+              style={[styles.toolBtn, { backgroundColor: colors.accent }]}
+            >
+              <Mic size={20} color={colors.onAccent} strokeWidth={2} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={handlePickPhotos}
+              accessibilityLabel="Add photos"
+              style={[styles.toolBtn, { backgroundColor: colors.surface }]}
+            >
+              <ImageLucide size={20} color={colors.muted} strokeWidth={1.8} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              activeOpacity={0.7}
+              accessibilityLabel="Category"
+              onPress={() => setShowCategories(!showCategories)}
+              style={[
+                styles.toolBtn,
+                {
+                  backgroundColor: showCategories ? colors.accent + '20' : colors.surface,
+                },
+              ]}
+            >
+              <Tag
+                size={20}
+                color={showCategories ? colors.accent : colors.muted}
+                strokeWidth={1.8}
+              />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={handleLocationPress}
+              accessibilityLabel="Location"
+              style={[styles.toolBtn, { backgroundColor: colors.surface }]}
+            >
+              <MapPin size={20} color={colors.muted} strokeWidth={1.8} />
+            </TouchableOpacity>
+          </View>
+
+          {/* Keep button: "Keep" or "Keep changes" */}
+          <TouchableOpacity
+            activeOpacity={0.75}
+            onPress={handleKeep}
+            disabled={saving || !hasContent}
+            style={[
+              styles.keepButton,
               {
-                color: hasContent ? colors.onAccent : colors.muted,
+                backgroundColor: hasContent ? colors.accent : colors.surface,
               },
             ]}
           >
-            {isEditing ? 'Keep changes' : 'Keep'}
-          </Text>
-        </TouchableOpacity>
-      </View>
+            <Text
+              style={[
+                typeTokens.uiMedium,
+                {
+                  color: hasContent ? colors.onAccent : colors.muted,
+                },
+              ]}
+            >
+              {isEditing ? 'Keep changes' : 'Keep'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </Animated.View>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   root: {
+    flex: 1,
+  },
+  animatedContent: {
     flex: 1,
   },
   recordingRoot: {

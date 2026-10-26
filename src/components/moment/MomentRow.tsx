@@ -1,31 +1,111 @@
-import React from 'react';
-import { View, TouchableOpacity, Image, StyleSheet, Text } from 'react-native';
+import React, { useRef } from 'react';
+import {
+  View,
+  TouchableOpacity,
+  Image,
+  StyleSheet,
+  Text,
+  Alert,
+  Platform,
+  ActionSheetIOS,
+  Animated,
+} from 'react-native';
 import { useRouter } from 'expo-router';
-import { Play } from 'lucide-react-native';
+import { Play, Trash2 } from 'lucide-react-native';
+import { Swipeable } from 'react-native-gesture-handler';
+import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/theme/ThemeContext';
 import { type as typeTokens, spacing, radius } from '@/theme/tokens';
 import { Moment } from '@/types/moment';
+import { deleteMoment } from '@/services/db/momentRepository';
 
-/**
- * A single moment entry on the Home timeline.
- * DESIGN.md §6.3: not a card. Text-only = serif on page bg, no border.
- * Moments separated by space, not borders or cards.
- */
 interface Props {
   moment: Moment;
+  onDeleted?: (id: string) => void;
 }
 
 const WAVEFORM_HEIGHTS = [6, 11, 16, 9, 14, 18, 12, 7, 15, 10, 14, 8];
 
-export function MomentRow({ moment }: Props) {
+export function MomentRow({ moment, onDeleted }: Props) {
   const { colors } = useTheme();
   const router = useRouter();
+  const swipeableRef = useRef<Swipeable>(null);
+  const collapseAnim = useRef(new Animated.Value(1)).current;
 
   const handlePress = () => {
     router.push({
       pathname: '/moment/[id]',
       params: { id: moment.id },
     });
+  };
+
+  const handlePromptDelete = () => {
+    swipeableRef.current?.close();
+    Alert.alert(
+      'Delete this moment?',
+      "This can't be undone.",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            } catch (_) {}
+
+            // Collapse animation over ~240ms per DESIGN.md §7
+            Animated.timing(collapseAnim, {
+              toValue: 0,
+              duration: 240,
+              useNativeDriver: false,
+            }).start(async () => {
+              try {
+                await deleteMoment(moment.id);
+                if (onDeleted) {
+                  onDeleted(moment.id);
+                }
+              } catch (err) {
+                console.warn('Failed to delete moment:', err);
+              }
+            });
+          },
+        },
+      ]
+    );
+  };
+
+  const handleLongPress = () => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch (_) {}
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Cancel', 'Edit', 'Delete'],
+          destructiveButtonIndex: 2,
+          cancelButtonIndex: 0,
+        },
+        (index) => {
+          if (index === 1) {
+            router.push({ pathname: '/capture', params: { editId: moment.id } });
+          } else if (index === 2) {
+            handlePromptDelete();
+          }
+        }
+      );
+    } else {
+      Alert.alert('Moment', undefined, [
+        {
+          text: 'Edit',
+          onPress: () =>
+            router.push({ pathname: '/capture', params: { editId: moment.id } }),
+        },
+        { text: 'Delete', style: 'destructive', onPress: handlePromptDelete },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
+    }
   };
 
   const formattedTime = new Date(moment.createdAt).toLocaleTimeString([], {
@@ -45,71 +125,117 @@ export function MomentRow({ moment }: Props) {
     return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
 
+  const renderRightActions = (
+    _progress: Animated.AnimatedInterpolation<number>,
+    dragX: Animated.AnimatedInterpolation<number>
+  ) => {
+    const scale = dragX.interpolate({
+      inputRange: [-80, 0],
+      outputRange: [1, 0.5],
+      extrapolate: 'clamp',
+    });
+
+    return (
+      <TouchableOpacity
+        activeOpacity={0.75}
+        onPress={handlePromptDelete}
+        accessibilityLabel="Delete moment"
+        style={styles.deleteActionContainer}
+      >
+        <Animated.View style={[styles.deleteButton, { transform: [{ scale }] }]}>
+          <Trash2 size={20} color="#E05252" strokeWidth={1.8} />
+        </Animated.View>
+      </TouchableOpacity>
+    );
+  };
+
   return (
-    <TouchableOpacity
-      activeOpacity={0.7}
-      onPress={handlePress}
-      style={styles.container}
+    <Animated.View
+      style={{
+        opacity: collapseAnim,
+        transform: [{ scaleY: collapseAnim }],
+        overflow: 'hidden',
+      }}
     >
-      {/* Metadata: time + glow dot + category */}
-      <View style={styles.metaRow}>
-        <Text style={[typeTokens.meta, { color: colors.muted }]}>
-          {formattedTime}
-        </Text>
-        {moment.category && (
-          <View style={styles.categoryMeta}>
-            <View style={[styles.glowDot, { backgroundColor: colors.glow }]} />
-            <Text style={[typeTokens.meta, { color: colors.muted }]}>
-              {moment.category.name}
-            </Text>
-          </View>
-        )}
-      </View>
-
-      {/* Text content — serif on page bg, clamped to 3 lines */}
-      {hasText && (
-        <Text
-          numberOfLines={3}
-          style={[typeTokens.momentBody, { color: colors.text, marginTop: spacing.xs }]}
+      <Swipeable
+        ref={swipeableRef}
+        renderRightActions={renderRightActions}
+        friction={2}
+        rightThreshold={40}
+      >
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={handlePress}
+          onLongPress={handleLongPress}
+          delayLongPress={350}
+          style={styles.container}
         >
-          {moment.text}
-        </Text>
-      )}
-
-      {/* Voice pill */}
-      {hasAudio && (
-        <View style={[styles.voicePill, { backgroundColor: colors.surface }]}>
-          <View style={[styles.playCircle, { backgroundColor: colors.accent }]}>
-            <Play size={10} color={colors.onAccent} fill={colors.onAccent} style={{ marginLeft: 1 }} />
+          {/* Metadata: time + glow dot + category */}
+          <View style={styles.metaRow}>
+            <Text style={[typeTokens.meta, { color: colors.muted }]}>
+              {formattedTime}
+            </Text>
+            {moment.category && (
+              <View style={styles.categoryMeta}>
+                <View style={[styles.glowDot, { backgroundColor: colors.glow }]} />
+                <Text style={[typeTokens.meta, { color: colors.muted }]}>
+                  {moment.category.name}
+                </Text>
+              </View>
+            )}
           </View>
-          <View style={styles.waveformRow}>
-            {WAVEFORM_HEIGHTS.map((h, i) => (
-              <View
-                key={i}
-                style={[styles.waveBar, { height: h, backgroundColor: colors.muted }]}
-              />
-            ))}
-          </View>
-          <Text style={[typeTokens.meta, { color: colors.muted }]}>
-            {formatDuration(moment.audioDuration)}
-          </Text>
-        </View>
-      )}
 
-      {/* Photo thumbnails */}
-      {hasImages && (
-        <View style={styles.photoRow}>
-          {moment.images.slice(0, 3).map((img) => (
-            <Image
-              key={img.id}
-              source={{ uri: img.uri }}
-              style={styles.thumbnail}
-              resizeMode="cover"
-            />
-          ))}
-        </View>
-      )}
-    </TouchableOpacity>
+          {/* Text content — serif on page bg, clamped to 3 lines */}
+          {hasText && (
+            <Text
+              numberOfLines={3}
+              style={[typeTokens.momentBody, { color: colors.text, marginTop: spacing.xs }]}
+            >
+              {moment.text}
+            </Text>
+          )}
+
+          {/* Voice pill */}
+          {hasAudio && (
+            <View style={[styles.voicePill, { backgroundColor: colors.surface }]}>
+              <View style={[styles.playCircle, { backgroundColor: colors.accent }]}>
+                <Play
+                  size={10}
+                  color={colors.onAccent}
+                  fill={colors.onAccent}
+                  style={{ marginLeft: 1 }}
+                />
+              </View>
+              <View style={styles.waveformRow}>
+                {WAVEFORM_HEIGHTS.map((h, i) => (
+                  <View
+                    key={i}
+                    style={[styles.waveBar, { height: h, backgroundColor: colors.muted }]}
+                  />
+                ))}
+              </View>
+              <Text style={[typeTokens.meta, { color: colors.muted }]}>
+                {formatDuration(moment.audioDuration)}
+              </Text>
+            </View>
+          )}
+
+          {/* Photo thumbnails */}
+          {hasImages && (
+            <View style={styles.photoRow}>
+              {moment.images.slice(0, 3).map((img) => (
+                <Image
+                  key={img.id}
+                  source={{ uri: img.uri }}
+                  style={styles.thumbnail}
+                  resizeMode="cover"
+                />
+              ))}
+            </View>
+          )}
+        </TouchableOpacity>
+      </Swipeable>
+    </Animated.View>
   );
 }
 
@@ -167,5 +293,17 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: radius.md,
+  },
+  deleteActionContainer: {
+    width: 72,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  deleteButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
