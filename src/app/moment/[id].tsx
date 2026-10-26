@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
-import { ChevronDown, MoreHorizontal } from 'lucide-react-native';
+import { ChevronDown, MoreHorizontal, MapPin } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/theme/ThemeContext';
 import { type as typeTokens, spacing, radius, hitSlop } from '@/theme/tokens';
@@ -248,13 +248,26 @@ export default function MomentDetailScreen() {
           </View>
         )}
 
-        {/* Category — glow dot + name, content last */}
-        {moment.category && (
-          <View style={styles.categoryRow}>
-            <View style={[styles.glowDot, { backgroundColor: colors.glow }]} />
-            <Text style={[typeTokens.meta, { color: colors.muted }]}>
-              {moment.category.name}
-            </Text>
+        {/* Category & Location — glow dot + name, and location pin + place */}
+        {(moment.category || moment.locationName) && (
+          <View style={styles.footerMetaRow}>
+            {moment.category && (
+              <View style={styles.categoryRow}>
+                <View style={[styles.glowDot, { backgroundColor: colors.glow }]} />
+                <Text style={[typeTokens.meta, { color: colors.muted }]}>
+                  {moment.category.name}
+                </Text>
+              </View>
+            )}
+
+            {moment.locationName && (
+              <View style={styles.locationRow}>
+                <MapPin size={12} color={colors.muted} strokeWidth={1.8} style={{ marginRight: 4 }} />
+                <Text style={[typeTokens.meta, { color: colors.muted }]}>
+                  {moment.locationName}
+                </Text>
+              </View>
+            )}
           </View>
         )}
       </ScrollView>
@@ -334,10 +347,20 @@ const styles = StyleSheet.create({
     height: 5,
     borderRadius: 2.5,
   },
+  footerMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.md,
+    marginTop: spacing.xxl,
+  },
   categoryRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: spacing.xxl,
+  },
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   glowDot: {
     width: 6,

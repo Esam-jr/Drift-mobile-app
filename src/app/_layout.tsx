@@ -89,6 +89,14 @@ function RootNavigator() {
             headerShown: false,
           }}
         />
+        <Stack.Screen
+          name="search"
+          options={{
+            presentation: 'card',
+            animation: 'fade',
+            headerShown: false,
+          }}
+        />
       </Stack>
 
       {/* Lock Screen & Passcode Creation */}

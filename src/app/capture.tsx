@@ -27,6 +27,7 @@ import {
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
 import {
   useAudioRecorder,
   RecordingPresets,
@@ -59,6 +60,7 @@ export default function CaptureScreen() {
   const [audioUri, setAudioUri] = useState<string | null>(null);
   const [audioDuration, setAudioDuration] = useState<number | null>(null);
   const [imageUris, setImageUris] = useState<string[]>([]);
+  const [locationName, setLocationName] = useState<string | null>(null);
   const [originalMoment, setOriginalMoment] = useState<Moment | null>(null);
 
   const [saving, setSaving] = useState(false);
@@ -99,6 +101,7 @@ export default function CaptureScreen() {
             setAudioUri(m.audioUri || null);
             setAudioDuration(m.audioDuration || null);
             setImageUris(m.images ? m.images.map((img) => img.uri) : []);
+            setLocationName(m.locationName || null);
           }
         })
         .catch((err) => console.warn('Could not load moment for edit:', err));
@@ -262,15 +265,78 @@ export default function CaptureScreen() {
     setImageUris((prev) => prev.filter((_, i) => i !== index));
   };
 
+  // Location handler per DESIGN.md §6.5 & §8
   const handleLocationPress = () => {
-    Alert.alert(
-      'Location',
-      'Drift will attach where you are right now to this moment. It never tracks you in the background.'
-    );
+    try {
+      Haptics.selectionAsync();
+    } catch (_) {}
+
+    if (locationName) {
+      Alert.alert(
+        'Location attached',
+        `Currently attached: "${locationName}".`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Remove location',
+            style: 'destructive',
+            onPress: () => setLocationName(null),
+          },
+        ]
+      );
+    } else {
+      Alert.alert(
+        'Location',
+        'Drift will attach where you are right now to this moment. It never tracks you in the background.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Attach location',
+            onPress: async () => {
+              try {
+                const { status } = await Location.requestForegroundPermissionsAsync();
+                if (status !== 'granted') {
+                  Alert.alert(
+                    'Location access',
+                    'Drift needs location access to attach your current place.',
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Open settings', onPress: () => Linking.openSettings() },
+                    ]
+                  );
+                  return;
+                }
+
+                const position = await Location.getCurrentPositionAsync({
+                  accuracy: Location.Accuracy.Balanced,
+                });
+                const geocode = await Location.reverseGeocodeAsync({
+                  latitude: position.coords.latitude,
+                  longitude: position.coords.longitude,
+                });
+
+                if (geocode && geocode.length > 0) {
+                  const place = geocode[0];
+                  const placeName = [place.city || place.subregion, place.region || place.country]
+                    .filter(Boolean)
+                    .join(', ');
+                  setLocationName(placeName || 'Current location');
+                } else {
+                  setLocationName('Current location');
+                }
+              } catch (err) {
+                console.warn('Error fetching location:', err);
+                Alert.alert('Location unavailable', 'Could not determine location right now.');
+              }
+            },
+          },
+        ]
+      );
+    }
   };
 
   const hasContent =
-    text.trim().length > 0 || !!audioUri || imageUris.length > 0;
+    text.trim().length > 0 || !!audioUri || imageUris.length > 0 || !!locationName;
 
   // Check if anything changed from original
   const isDirty = (() => {
@@ -281,6 +347,7 @@ export default function CaptureScreen() {
       text.trim() !== (originalMoment.text || '').trim() ||
       selectedCategoryId !== (originalMoment.categoryId || null) ||
       audioUri !== (originalMoment.audioUri || null) ||
+      locationName !== (originalMoment.locationName || null) ||
       JSON.stringify(imageUris) !== JSON.stringify(origImages)
     );
   })();
@@ -357,6 +424,7 @@ export default function CaptureScreen() {
           audioUri: audioUri ?? null,
           audioDuration: audioDuration ?? null,
           imageUris: imageUris,
+          locationName: locationName ?? null,
         });
       } else {
         await createMoment({
@@ -365,6 +433,7 @@ export default function CaptureScreen() {
           audioUri: audioUri ?? undefined,
           audioDuration: audioDuration ?? undefined,
           imageUris: imageUris.length > 0 ? imageUris : undefined,
+          locationName: locationName ?? undefined,
         });
       }
     })();
@@ -542,6 +611,24 @@ export default function CaptureScreen() {
             </View>
           )}
 
+          {/* Attached location pill */}
+          {locationName && (
+            <View style={[styles.attachedLocationPill, { backgroundColor: colors.surface }]}>
+              <MapPin size={12} color={colors.accent} strokeWidth={1.8} style={{ marginRight: spacing.xs }} />
+              <Text style={[typeTokens.meta, { color: colors.muted, flex: 1 }]} numberOfLines={1}>
+                {locationName}
+              </Text>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => setLocationName(null)}
+                accessibilityLabel="Remove location"
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <X size={14} color={colors.muted} />
+              </TouchableOpacity>
+            </View>
+          )}
+
           {/* Attached category indicator */}
           {selectedCategory && (
             <View style={styles.attachedCategory}>
@@ -629,9 +716,18 @@ export default function CaptureScreen() {
               activeOpacity={0.7}
               onPress={handleLocationPress}
               accessibilityLabel="Location"
-              style={[styles.toolBtn, { backgroundColor: colors.surface }]}
+              style={[
+                styles.toolBtn,
+                {
+                  backgroundColor: locationName ? colors.accent + '20' : colors.surface,
+                },
+              ]}
             >
-              <MapPin size={20} color={colors.muted} strokeWidth={1.8} />
+              <MapPin
+                size={20}
+                color={locationName ? colors.accent : colors.muted}
+                strokeWidth={1.8}
+              />
             </TouchableOpacity>
           </View>
 
@@ -757,6 +853,16 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 2,
     elevation: 2,
+  },
+  attachedLocationPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.md,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.pill,
+    alignSelf: 'flex-start',
+    maxWidth: 240,
   },
   attachedCategory: {
     flexDirection: 'row',

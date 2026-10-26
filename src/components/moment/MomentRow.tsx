@@ -11,7 +11,7 @@ import {
   Animated,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Play, Trash2 } from 'lucide-react-native';
+import { Play, Trash2, MapPin } from 'lucide-react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/theme/ThemeContext';
@@ -22,11 +22,12 @@ import { deleteMoment } from '@/services/db/momentRepository';
 interface Props {
   moment: Moment;
   onDeleted?: (id: string) => void;
+  highlightQuery?: string;
 }
 
 const WAVEFORM_HEIGHTS = [6, 11, 16, 9, 14, 18, 12, 7, 15, 10, 14, 8];
 
-export function MomentRow({ moment, onDeleted }: Props) {
+export function MomentRow({ moment, onDeleted, highlightQuery }: Props) {
   const { colors } = useTheme();
   const router = useRouter();
   const swipeableRef = useRef<Swipeable>(null);
@@ -125,6 +126,47 @@ export function MomentRow({ moment, onDeleted }: Props) {
     return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
 
+  // Highlights search matches with a tinted accent background per DESIGN.md §6.7
+  const renderHighlightedText = (content: string, query?: string) => {
+    if (!query || !query.trim()) {
+      return (
+        <Text
+          numberOfLines={3}
+          style={[typeTokens.momentBody, { color: colors.text, marginTop: spacing.xs }]}
+        >
+          {content}
+        </Text>
+      );
+    }
+
+    const trimmed = query.trim();
+    const parts = content.split(new RegExp(`(${trimmed})`, 'gi'));
+
+    return (
+      <Text
+        numberOfLines={3}
+        style={[typeTokens.momentBody, { color: colors.text, marginTop: spacing.xs }]}
+      >
+        {parts.map((part, i) =>
+          part.toLowerCase() === trimmed.toLowerCase() ? (
+            <Text
+              key={i}
+              style={{
+                backgroundColor: colors.accent + '35',
+                color: colors.text,
+                borderRadius: 2,
+              }}
+            >
+              {part}
+            </Text>
+          ) : (
+            part
+          )
+        )}
+      </Text>
+    );
+  };
+
   const renderRightActions = (
     _progress: Animated.AnimatedInterpolation<number>,
     dragX: Animated.AnimatedInterpolation<number>
@@ -170,11 +212,12 @@ export function MomentRow({ moment, onDeleted }: Props) {
           delayLongPress={350}
           style={styles.container}
         >
-          {/* Metadata: time + glow dot + category */}
+          {/* Metadata: time + glow dot + category + optional location */}
           <View style={styles.metaRow}>
             <Text style={[typeTokens.meta, { color: colors.muted }]}>
               {formattedTime}
             </Text>
+
             {moment.category && (
               <View style={styles.categoryMeta}>
                 <View style={[styles.glowDot, { backgroundColor: colors.glow }]} />
@@ -183,17 +226,19 @@ export function MomentRow({ moment, onDeleted }: Props) {
                 </Text>
               </View>
             )}
+
+            {moment.locationName && (
+              <View style={styles.locationMeta}>
+                <MapPin size={11} color={colors.muted} strokeWidth={1.8} style={{ marginRight: 2 }} />
+                <Text style={[typeTokens.meta, { color: colors.muted }]}>
+                  {moment.locationName}
+                </Text>
+              </View>
+            )}
           </View>
 
-          {/* Text content — serif on page bg, clamped to 3 lines */}
-          {hasText && (
-            <Text
-              numberOfLines={3}
-              style={[typeTokens.momentBody, { color: colors.text, marginTop: spacing.xs }]}
-            >
-              {moment.text}
-            </Text>
-          )}
+          {/* Text content — serif on page bg with search match highlighting */}
+          {hasText && renderHighlightedText(moment.text!, highlightQuery)}
 
           {/* Voice pill */}
           {hasAudio && (
@@ -246,11 +291,18 @@ const styles = StyleSheet.create({
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
   },
   categoryMeta: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginLeft: spacing.sm,
+    marginLeft: spacing.xs,
+  },
+  locationMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: spacing.xs,
   },
   glowDot: {
     width: 6,

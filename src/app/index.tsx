@@ -118,7 +118,7 @@ export default function HomeScreen() {
           <View style={{ flex: 1 }} />
           <TouchableOpacity
             activeOpacity={0.7}
-            hitSlop={{ top: hitSlop, bottom: hitSlop, left: hitSlop, right: hitSlop }}
+            onPress={() => router.push('/search')}
             accessibilityLabel="Search"
             style={styles.iconBtn}
           >
@@ -127,7 +127,6 @@ export default function HomeScreen() {
           <TouchableOpacity
             activeOpacity={0.7}
             onPress={() => router.push('/settings')}
-            hitSlop={{ top: hitSlop, bottom: hitSlop, left: hitSlop, right: hitSlop }}
             accessibilityLabel="Settings"
             style={styles.iconBtn}
           >

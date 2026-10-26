@@ -74,7 +74,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
         activeOpacity={0.75}
         onPress={togglePlayback}
         accessibilityLabel={isPlaying ? 'Pause voice moment' : 'Play voice moment'}
-        hitSlop={{ top: hitSlop / 4, bottom: hitSlop / 4, left: hitSlop / 4, right: hitSlop / 4 }}
+        hitSlop={{ top: hitSlop, bottom: hitSlop, left: hitSlop, right: hitSlop }}
         style={[
           styles.playButton,
           compact ? styles.playButtonCompact : styles.playButtonFull,

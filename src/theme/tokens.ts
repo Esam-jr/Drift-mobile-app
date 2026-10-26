@@ -69,7 +69,7 @@ export const motion = {
   float: 5000,
 } as const;
 
-export const hitSlop = 44; // minimum touch target
+export const hitSlop = 8; // default touch slop extension padding
 
 // ── Legacy compat ──────────────────────────────────────────────────
 // Maps old DriftTokens shape used by unmigrated files.
