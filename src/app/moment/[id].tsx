@@ -6,47 +6,33 @@ import {
   StyleSheet,
   TouchableOpacity,
   Alert,
-  TextInput,
   Platform,
-  StatusBar,
+  Text,
+  ActionSheetIOS,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft, Trash2, Edit3, Check, X, MapPin, Calendar, Clock } from 'lucide-react-native';
+import { ChevronDown, MoreHorizontal } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/theme/ThemeContext';
-import { DriftTokens } from '@/theme/tokens';
-import { Moment, Category } from '@/types/moment';
-import { getMomentById, updateMoment, deleteMoment, getCategories } from '@/services/db/momentRepository';
-import { DriftText } from '@/components/ui/DriftText';
-import { CategoryBadge } from '@/components/ui/CategoryBadge';
-import { AudioPlayer } from '@/components/moment/AudioPlayer';
+import { type as typeTokens, spacing, radius, hitSlop } from '@/theme/tokens';
+import { Moment } from '@/types/moment';
+import { getMomentById, deleteMoment } from '@/services/db/momentRepository';
 
 export default function MomentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { theme } = useTheme();
+  const { colors } = useTheme();
 
   const [moment, setMoment] = useState<Moment | null>(null);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [isEditing, setIsEditing] = useState<boolean>(false);
-  const [editText, setEditText] = useState<string>('');
-  const [editCategoryId, setEditCategoryId] = useState<string | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState(true);
+  const [photoIndex, setPhotoIndex] = useState(0);
 
-  const loadMoment = useCallback(async () => {
+  const load = useCallback(async () => {
     if (!id) return;
     try {
-      const [data, allCats] = await Promise.all([
-        getMomentById(id),
-        getCategories(),
-      ]);
+      const data = await getMomentById(id);
       setMoment(data);
-      setCategories(allCats);
-      if (data) {
-        setEditText(data.text || '');
-        setEditCategoryId(data.categoryId || null);
-      }
     } catch (err) {
       console.warn('Error fetching moment:', err);
     } finally {
@@ -55,22 +41,22 @@ export default function MomentDetailScreen() {
   }, [id]);
 
   useEffect(() => {
-    loadMoment();
-  }, [loadMoment]);
+    load();
+  }, [load]);
 
   const handleDelete = () => {
     Alert.alert(
-      'Release moment?',
-      'This moment and any attached recordings or photos will be permanently released.',
+      'Delete this moment?',
+      "This can't be undone.",
       [
-        { text: 'Keep', style: 'cancel' },
+        { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Release',
+          text: 'Delete',
           style: 'destructive',
           onPress: async () => {
             if (!id) return;
             try {
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             } catch (_) {}
             await deleteMoment(id);
             router.back();
@@ -80,302 +66,286 @@ export default function MomentDetailScreen() {
     );
   };
 
-  const handleSaveEdit = async () => {
-    if (!id) return;
-    try {
-      try {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      } catch (_) {}
-      const updated = await updateMoment({
-        id,
-        text: editText.trim(),
-        categoryId: editCategoryId,
-      });
-      setMoment(updated);
-      setIsEditing(false);
-    } catch (err) {
-      console.warn('Failed to update moment:', err);
-      Alert.alert('Error', 'Could not save updates.');
+  const handleMore = () => {
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Cancel', 'Edit', 'Delete'],
+          destructiveButtonIndex: 2,
+          cancelButtonIndex: 0,
+        },
+        (index) => {
+          if (index === 1) {
+            router.push({ pathname: '/capture', params: { editId: id } });
+          } else if (index === 2) {
+            handleDelete();
+          }
+        }
+      );
+    } else {
+      Alert.alert('Options', undefined, [
+        {
+          text: 'Edit',
+          onPress: () =>
+            router.push({ pathname: '/capture', params: { editId: id } }),
+        },
+        { text: 'Delete', style: 'destructive', onPress: handleDelete },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
     }
   };
 
-  const handleCancelEdit = () => {
-    if (moment) {
-      setEditText(moment.text || '');
-      setEditCategoryId(moment.categoryId || null);
-    }
-    setIsEditing(false);
-  };
+  if (loading) {
+    return <View style={[styles.root, { backgroundColor: colors.bg }]} />;
+  }
 
-  if (!moment && !loading) {
+  if (!moment) {
     return (
-      <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]}>
-        <View style={styles.notFoundContainer}>
-          <DriftText variant="headline" color="secondary">
-            Moment not found.
-          </DriftText>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <DriftText variant="bodySmall" color="accent">
-              Return to timeline
-            </DriftText>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
+      <View style={[styles.root, styles.centered, { backgroundColor: colors.bg }]}>
+        <Text style={[typeTokens.ui, { color: colors.muted }]}>
+          Moment not found.
+        </Text>
+      </View>
     );
   }
 
-  const createdDate = moment ? new Date(moment.createdAt) : new Date();
-  const dateFormatted = createdDate.toLocaleDateString(undefined, {
-    weekday: 'long',
+  const createdDate = new Date(moment.createdAt);
+
+  // "September 4" — month + day
+  const dateLabel = createdDate.toLocaleDateString(undefined, {
     month: 'long',
     day: 'numeric',
-    year: 'numeric',
-  });
-  const timeFormatted = createdDate.toLocaleTimeString([], {
-    hour: 'numeric',
-    minute: '2-digit',
   });
 
+  // "2026, 8:41 PM"
+  const yearTimeLabel = `${createdDate.getFullYear()}, ${createdDate.toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+  })}`;
+
+  const hasText = !!moment.text && moment.text.trim().length > 0;
+  const hasImages = moment.images && moment.images.length > 0;
+
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]}>
-      <View style={styles.container}>
-        {/* Top Header */}
-        <View style={styles.header}>
+    <SafeAreaView style={[styles.root, { backgroundColor: colors.bg }]} edges={['top']}>
+      {/* Grabber + header */}
+      <View style={styles.topBar}>
+        {/* Grabber pill */}
+        <View style={styles.grabberRow}>
+          <View style={[styles.grabber, { backgroundColor: colors.hairline }]} />
+        </View>
+
+        <View style={styles.headerRow}>
           <TouchableOpacity
             activeOpacity={0.7}
             onPress={() => router.back()}
-            style={[styles.iconButton, { backgroundColor: theme.surface }]}
+            accessibilityLabel="Close"
+            hitSlop={{ top: hitSlop, bottom: hitSlop, left: hitSlop, right: hitSlop }}
+            style={styles.iconBtn}
           >
-            <ArrowLeft size={18} color={theme.textPrimary} />
+            <ChevronDown size={22} color={colors.muted} strokeWidth={1.8} />
           </TouchableOpacity>
 
-          <View style={styles.headerActions}>
-            {isEditing ? (
-              <>
-                <TouchableOpacity
-                  activeOpacity={0.7}
-                  onPress={handleCancelEdit}
-                  style={[styles.iconButton, { backgroundColor: theme.surface, marginRight: 8 }]}
-                >
-                  <X size={18} color={theme.textSecondary} />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  activeOpacity={0.7}
-                  onPress={handleSaveEdit}
-                  style={[styles.iconButton, { backgroundColor: theme.accent }]}
-                >
-                  <Check size={18} color="#0B0D11" strokeWidth={2.5} />
-                </TouchableOpacity>
-              </>
-            ) : (
-              <>
-                <TouchableOpacity
-                  activeOpacity={0.7}
-                  onPress={() => setIsEditing(true)}
-                  style={[styles.iconButton, { backgroundColor: theme.surface, marginRight: 8 }]}
-                >
-                  <Edit3 size={17} color={theme.textSecondary} />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  activeOpacity={0.7}
-                  onPress={handleDelete}
-                  style={[styles.iconButton, { backgroundColor: theme.surface }]}
-                >
-                  <Trash2 size={17} color={theme.rose} />
-                </TouchableOpacity>
-              </>
-            )}
-          </View>
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={handleMore}
+            accessibilityLabel="More options"
+            hitSlop={{ top: hitSlop, bottom: hitSlop, left: hitSlop, right: hitSlop }}
+            style={styles.iconBtn}
+          >
+            <MoreHorizontal size={20} color={colors.muted} strokeWidth={1.8} />
+          </TouchableOpacity>
         </View>
+      </View>
 
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
-        >
-          {/* Metadata Header */}
-          <View style={styles.metaContainer}>
-            <DriftText variant="caption" color="tertiary" style={styles.dateLabel}>
-              {dateFormatted} • {timeFormatted}
-            </DriftText>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+      >
+        {/* Large serif date */}
+        <Text style={[typeTokens.dateDisplay, styles.dateLabel, { color: colors.text, fontSize: 27, lineHeight: 34 }]}>
+          {dateLabel}
+        </Text>
 
-            <View style={styles.categoryRow}>
-              {isEditing ? (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.editCatScroll}>
-                  {categories.map((cat) => {
-                    const isSelected = editCategoryId === cat.id;
-                    return (
-                      <TouchableOpacity
-                        key={cat.id}
-                        activeOpacity={0.7}
-                        onPress={() => setEditCategoryId(isSelected ? null : cat.id)}
-                        style={[
-                          styles.editCatChip,
-                          {
-                            backgroundColor: isSelected ? `${cat.color}25` : theme.surfaceElevated,
-                            borderColor: isSelected ? cat.color : theme.borderSubtle,
-                          },
-                        ]}
-                      >
-                        <DriftText
-                          variant="caption"
-                          style={{ color: isSelected ? cat.color : theme.textSecondary }}
-                        >
-                          {cat.name}
-                        </DriftText>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              ) : (
-                moment?.category && <CategoryBadge category={moment.category} size="md" />
-              )}
-            </View>
+        {/* Muted year + time */}
+        <Text style={[typeTokens.meta, styles.yearTime, { color: colors.muted }]}>
+          {yearTimeLabel}
+        </Text>
+
+        {/* Text content */}
+        {hasText && (
+          <Text style={[typeTokens.momentDetail, styles.body, { color: colors.text }]}>
+            {moment.text}
+          </Text>
+        )}
+
+        {/* Voice player — placeholder for Phase 4 */}
+        {moment.audioUri && (
+          <View style={[styles.voiceBlock, { backgroundColor: colors.surface }]}>
+            <Text style={[typeTokens.meta, { color: colors.muted }]}>
+              Voice moment · {moment.audioDuration ? formatDuration(moment.audioDuration) : '—'}
+            </Text>
           </View>
+        )}
 
-          {/* Main Text Content */}
-          {isEditing ? (
-            <TextInput
-              multiline
-              value={editText}
-              onChangeText={setEditText}
-              style={[
-                styles.editTextInput,
-                {
-                  color: theme.textPrimary,
-                  backgroundColor: theme.surface,
-                  borderColor: theme.border,
-                },
-              ]}
-              textAlignVertical="top"
-              placeholder="What was on your mind?"
-              placeholderTextColor={theme.textTertiary}
-            />
-          ) : (
-            moment?.text && (
-              <DriftText variant="body" color="primary" style={styles.bodyText}>
-                {moment.text}
-              </DriftText>
-            )
-          )}
-
-          {/* Voice Player */}
-          {moment?.audioUri && (
-            <View style={styles.mediaBlock}>
-              <DriftText variant="caption" color="tertiary" style={styles.sectionLabel}>
-                VOICE RECORDING
-              </DriftText>
-              <AudioPlayer uri={moment.audioUri} durationMs={moment.audioDuration} />
-            </View>
-          )}
-
-          {/* Photo Gallery */}
-          {moment?.images && moment.images.length > 0 && (
-            <View style={styles.mediaBlock}>
-              <DriftText variant="caption" color="tertiary" style={styles.sectionLabel}>
-                PHOTOS ({moment.images.length})
-              </DriftText>
+        {/* Photos — scrollable with counter */}
+        {hasImages && (
+          <View style={styles.photosBlock}>
+            <ScrollView
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              onMomentumScrollEnd={(e) => {
+                const index = Math.round(
+                  e.nativeEvent.contentOffset.x /
+                    e.nativeEvent.layoutMeasurement.width
+                );
+                setPhotoIndex(index);
+              }}
+            >
               {moment.images.map((img) => (
                 <Image
                   key={img.id}
                   source={{ uri: img.uri }}
-                  style={styles.detailImage}
-                  resizeMode="contain"
+                  style={styles.photo}
+                  resizeMode="cover"
                 />
               ))}
-            </View>
-          )}
-        </ScrollView>
-      </View>
+            </ScrollView>
+
+            {/* Counter label */}
+            {moment.images.length > 1 && (
+              <Text style={[typeTokens.meta, styles.photoCounter, { color: colors.muted }]}>
+                {photoIndex + 1} of {moment.images.length}
+              </Text>
+            )}
+
+            {/* Page dots */}
+            {moment.images.length > 1 && (
+              <View style={styles.pageDots}>
+                {moment.images.map((_, i) => (
+                  <View
+                    key={i}
+                    style={[
+                      styles.pageDot,
+                      {
+                        backgroundColor:
+                          i === photoIndex ? colors.text : colors.hairline,
+                      },
+                    ]}
+                  />
+                ))}
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* Category — glow dot + name, content last */}
+        {moment.category && (
+          <View style={styles.categoryRow}>
+            <View style={[styles.glowDot, { backgroundColor: colors.glow }]} />
+            <Text style={[typeTokens.meta, { color: colors.muted }]}>
+              {moment.category.name}
+            </Text>
+          </View>
+        )}
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
+function formatDuration(ms: number) {
+  const total = Math.floor(ms / 1000);
+  const mins = Math.floor(total / 60);
+  const secs = total % 60;
+  return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+}
+
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
-  },
-  container: {
+  root: {
     flex: 1,
   },
-  notFoundContainer: {
-    flex: 1,
+  centered: {
     alignItems: 'center',
     justifyContent: 'center',
   },
-  backButton: {
-    marginTop: 16,
+  topBar: {
+    paddingHorizontal: spacing.screen,
   },
-  header: {
+  grabberRow: {
+    alignItems: 'center',
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xs,
+  },
+  grabber: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+  },
+  headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 18,
-    paddingVertical: 12,
+    paddingVertical: spacing.xs,
   },
-  iconButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+  iconBtn: {
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
   scrollContent: {
-    paddingHorizontal: 22,
-    paddingBottom: 60,
-  },
-  metaContainer: {
-    marginVertical: 16,
+    paddingHorizontal: spacing.screen,
+    paddingBottom: spacing.huge,
+    paddingTop: spacing.md,
   },
   dateLabel: {
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginBottom: 8,
+    marginBottom: spacing.xs,
+  },
+  yearTime: {
+    marginBottom: spacing.xl,
+  },
+  body: {
+    marginBottom: spacing.xl,
+  },
+  voiceBlock: {
+    borderRadius: radius.md,
+    padding: spacing.lg,
+    marginBottom: spacing.xl,
+  },
+  photosBlock: {
+    marginBottom: spacing.xl,
+  },
+  photo: {
+    width: 320,
+    height: 240,
+    borderRadius: radius.md,
+    marginRight: spacing.md,
+  },
+  photoCounter: {
+    marginTop: spacing.sm,
+    textAlign: 'right',
+  },
+  pageDots: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: spacing.sm,
+    gap: spacing.xs,
+  },
+  pageDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
   },
   categoryRow: {
     flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.xxl,
   },
-  editCatScroll: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  editCatChip: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: DriftTokens.radius.full,
-    borderWidth: 1,
-    marginRight: 8,
-  },
-  bodyText: {
-    fontSize: 18,
-    lineHeight: 28,
-    marginBottom: 24,
-    letterSpacing: -0.1,
-  },
-  editTextInput: {
-    fontSize: 18,
-    lineHeight: 28,
-    padding: 16,
-    borderRadius: DriftTokens.radius.md,
-    borderWidth: 1,
-    minHeight: 160,
-    marginBottom: 24,
-  },
-  mediaBlock: {
-    marginBottom: 24,
-  },
-  sectionLabel: {
-    marginBottom: 8,
-    letterSpacing: 0.6,
-  },
-  detailImage: {
-    width: '100%',
-    height: 320,
-    borderRadius: DriftTokens.radius.md,
-    marginBottom: 12,
+  glowDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: spacing.xs,
   },
 });
