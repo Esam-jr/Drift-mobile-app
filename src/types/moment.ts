@@ -54,3 +54,23 @@ export interface DateGroupedMoments {
   timestamp: number; // Normalized timestamp of the start of that day
   moments: Moment[];
 }
+
+export type HomeLayout = 'journal' | 'gallery' | 'compact';
+
+export interface MomentPreview {
+  id: string;
+  createdAt: number;
+  text?: string; // truncated to about 200 characters at query time
+  category?: { id: string; name: string };
+  voice?: { durationMs: number };
+  photos: { thumbUri: string; width?: number; height?: number }[]; // max 3
+  photoCount: number;
+  locationName?: string | null;
+}
+
+export interface Section {
+  key: string; // e.g. "2026-10"
+  label: string; // e.g. "October" or "October 2025"
+  moments: MomentPreview[];
+}
+

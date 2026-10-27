@@ -1,5 +1,14 @@
 import { getDatabase } from './database';
-import { Moment, Category, CreateMomentInput, UpdateMomentInput, MomentImage, DateGroupedMoments } from '@/types/moment';
+import {
+  Moment,
+  Category,
+  CreateMomentInput,
+  UpdateMomentInput,
+  MomentImage,
+  DateGroupedMoments,
+  MomentPreview,
+  Section,
+} from '@/types/moment';
 import { persistMediaFile, deleteMediaFile } from '../media/mediaService';
 
 interface MomentRow {
@@ -356,3 +365,121 @@ export function groupMomentsByDate(moments: Moment[]): DateGroupedMoments[] {
 
   return Array.from(groups.values()).sort((a, b) => b.timestamp - a.timestamp);
 }
+
+/**
+ * Returns grouped moment previews organized into monthly sections per DESIGN-home.md §6.
+ * Layouts receive this shared data structure without querying or sorting on their own.
+ */
+export async function getGroupedMomentPreviews(filter?: {
+  categoryId?: string;
+  search?: string;
+}): Promise<Section[]> {
+  const db = await getDatabase();
+
+  let query = `
+    SELECT 
+      m.id, m.title, m.text, m.created_at, m.updated_at, m.category_id,
+      m.audio_uri, m.audio_duration, m.location_name,
+      c.name as category_name, c.color as category_color
+    FROM moments m
+    LEFT JOIN categories c ON m.category_id = c.id
+  `;
+
+  const conditions: string[] = [];
+  const params: any[] = [];
+
+  if (filter?.categoryId) {
+    conditions.push('m.category_id = ?');
+    params.push(filter.categoryId);
+  }
+
+  if (filter?.search && filter.search.trim().length > 0) {
+    conditions.push('(m.text LIKE ? OR m.title LIKE ? OR m.location_name LIKE ?)');
+    const searchTerm = `%${filter.search.trim()}%`;
+    params.push(searchTerm, searchTerm, searchTerm);
+  }
+
+  if (conditions.length > 0) {
+    query += ` WHERE ${conditions.join(' AND ')}`;
+  }
+
+  query += ' ORDER BY m.created_at DESC;';
+
+  const momentRows = await db.getAllAsync<MomentRow>(query, ...params);
+  if (momentRows.length === 0) return [];
+
+  // Fetch images for previews
+  const imageRows = await db.getAllAsync<MomentImageRow>(
+    'SELECT id, moment_id, uri, order_index, created_at FROM moment_images ORDER BY order_index ASC;'
+  );
+
+  const imagesByMomentId = new Map<string, MomentImageRow[]>();
+  for (const img of imageRows) {
+    const list = imagesByMomentId.get(img.moment_id) || [];
+    list.push(img);
+    imagesByMomentId.set(img.moment_id, list);
+  }
+
+  const currentYear = new Date().getFullYear();
+  const sectionsMap = new Map<string, { label: string; moments: MomentPreview[] }>();
+
+  for (const row of momentRows) {
+    const date = new Date(row.created_at);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const key = `${year}-${month}`;
+
+    if (!sectionsMap.has(key)) {
+      const monthName = date.toLocaleDateString(undefined, { month: 'long' });
+      // Current year shows only month name; earlier years show year as well per DESIGN-home.md §2
+      const label = year === currentYear ? monthName : `${monthName} ${year}`;
+      sectionsMap.set(key, { label, moments: [] });
+    }
+
+    const allImages = imagesByMomentId.get(row.id) || [];
+    const previewPhotos = allImages.slice(0, 3).map((img) => ({
+      thumbUri: img.uri,
+    }));
+
+    // Truncate text to ~200 characters per DESIGN-home.md §6
+    let previewText: string | undefined = undefined;
+    if (row.text && row.text.trim().length > 0) {
+      previewText = row.text.length > 200 ? row.text.slice(0, 200) + '...' : row.text;
+    }
+
+    const preview: MomentPreview = {
+      id: row.id,
+      createdAt: row.created_at,
+      text: previewText,
+      category:
+        row.category_id && row.category_name
+          ? {
+              id: row.category_id,
+              name: row.category_name,
+            }
+          : undefined,
+      voice: row.audio_uri
+        ? {
+            durationMs: row.audio_duration || 0,
+          }
+        : undefined,
+      photos: previewPhotos,
+      photoCount: allImages.length,
+      locationName: row.location_name,
+    };
+
+    sectionsMap.get(key)!.moments.push(preview);
+  }
+
+  const sections: Section[] = [];
+  for (const [key, val] of sectionsMap.entries()) {
+    sections.push({
+      key,
+      label: val.label,
+      moments: val.moments,
+    });
+  }
+
+  return sections;
+}
+
