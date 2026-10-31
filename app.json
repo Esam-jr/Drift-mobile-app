@@ -8,7 +8,7 @@
     "scheme": "drift",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "bundleIdentifier": "com.drift.journal",
+      "bundleIdentifier": "io.github.esamjr.drift",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Drift needs microphone access to record a voice moment.",
         "NSCameraUsageDescription": "Drift needs camera access so you can take photos for your moments.",
@@ -17,13 +17,20 @@
       }
     },
     "android": {
+      "package": "io.github.esamjr.drift",
       "adaptiveIcon": {
         "backgroundColor": "#13121B",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
+      ]
     },
     "web": {
       "output": "static",
@@ -42,11 +49,21 @@
       "expo-sqlite",
       "expo-secure-store",
       "expo-audio",
-      "expo-font"
+      "expo-font",
+      "expo-asset",
+      "expo-image",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "47b9076f-505b-47b6-83e4-51c6b5f4966f"
+      }
+    },
+    "owner": "esamjr"
   }
 }

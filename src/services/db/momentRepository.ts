@@ -1,6 +1,16 @@
 import { getDatabase } from './database';
-import { Moment, Category, CreateMomentInput, UpdateMomentInput, MomentImage, DateGroupedMoments } from '@/types/moment';
+import {
+  Moment,
+  Category,
+  CreateMomentInput,
+  UpdateMomentInput,
+  MomentImage,
+  DateGroupedMoments,
+  MomentPreview,
+  Section,
+} from '@/types/moment';
 import { persistMediaFile, deleteMediaFile } from '../media/mediaService';
+import { stripMarkdown } from '@/utils/markdown';
 
 interface MomentRow {
   id: string;
@@ -65,6 +75,34 @@ export async function getCategories(): Promise<Category[]> {
 }
 
 /**
+ * Creates a new custom category.
+ */
+export async function createCategory(name: string, color?: string, icon?: string): Promise<Category> {
+  const db = await getDatabase();
+  const id = `cat-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+  const now = Date.now();
+  const categoryColor = color || '#8CA697';
+  const categoryIcon = icon || 'tag';
+
+  await db.runAsync(
+    `INSERT INTO categories (id, name, color, icon, created_at) VALUES (?, ?, ?, ?, ?);`,
+    id,
+    name.trim(),
+    categoryColor,
+    categoryIcon,
+    now
+  );
+
+  return {
+    id,
+    name: name.trim(),
+    color: categoryColor,
+    icon: categoryIcon,
+    createdAt: now,
+  };
+}
+
+/**
  * Retrieves all moments, optionally filtered by category.
  */
 export async function getAllMoments(filter?: { categoryId?: string; search?: string }): Promise<Moment[]> {
@@ -88,9 +126,9 @@ export async function getAllMoments(filter?: { categoryId?: string; search?: str
   }
 
   if (filter?.search && filter.search.trim().length > 0) {
-    conditions.push('(m.text LIKE ? OR m.title LIKE ? OR m.location_name LIKE ?)');
+    conditions.push('(m.text_plain LIKE ? OR m.text LIKE ? OR m.title LIKE ? OR m.location_name LIKE ?)');
     const searchTerm = `%${filter.search.trim()}%`;
-    params.push(searchTerm, searchTerm, searchTerm);
+    params.push(searchTerm, searchTerm, searchTerm, searchTerm);
   }
 
   if (conditions.length > 0) {
@@ -180,12 +218,15 @@ export async function createMoment(input: CreateMomentInput): Promise<Moment> {
     }
   }
 
+  const textPlain = input.text ? stripMarkdown(input.text) : null;
+
   await db.runAsync(
-    `INSERT INTO moments (id, title, text, created_at, updated_at, category_id, audio_uri, audio_duration, location_name)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+    `INSERT INTO moments (id, title, text, text_plain, created_at, updated_at, category_id, audio_uri, audio_duration, location_name)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
     momentId,
     input.title ?? null,
     input.text ?? null,
+    textPlain,
     now,
     now,
     input.categoryId ?? null,
@@ -267,12 +308,16 @@ export async function updateMoment(input: UpdateMomentInput): Promise<Moment> {
     }
   }
 
+  const updatedText = input.text !== undefined ? (input.text ?? null) : (existing.text ?? null);
+  const updatedTextPlain = updatedText ? stripMarkdown(updatedText) : null;
+
   await db.runAsync(
     `UPDATE moments 
-     SET title = ?, text = ?, category_id = ?, updated_at = ?, location_name = ?, audio_uri = ?, audio_duration = ?
+     SET title = ?, text = ?, text_plain = ?, category_id = ?, updated_at = ?, location_name = ?, audio_uri = ?, audio_duration = ?
      WHERE id = ?;`,
     input.title !== undefined ? (input.title ?? null) : (existing.title ?? null),
-    input.text !== undefined ? (input.text ?? null) : (existing.text ?? null),
+    updatedText,
+    updatedTextPlain,
     input.categoryId !== undefined ? (input.categoryId ?? null) : (existing.categoryId ?? null),
     now,
     input.locationName !== undefined ? (input.locationName ?? null) : (existing.locationName ?? null),
@@ -356,3 +401,122 @@ export function groupMomentsByDate(moments: Moment[]): DateGroupedMoments[] {
 
   return Array.from(groups.values()).sort((a, b) => b.timestamp - a.timestamp);
 }
+
+/**
+ * Returns grouped moment previews organized into monthly sections per DESIGN-home.md §6.
+ * Layouts receive this shared data structure without querying or sorting on their own.
+ */
+export async function getGroupedMomentPreviews(filter?: {
+  categoryId?: string;
+  search?: string;
+}): Promise<Section[]> {
+  const db = await getDatabase();
+
+  let query = `
+    SELECT 
+      m.id, m.title, m.text, m.created_at, m.updated_at, m.category_id,
+      m.audio_uri, m.audio_duration, m.location_name,
+      c.name as category_name, c.color as category_color
+    FROM moments m
+    LEFT JOIN categories c ON m.category_id = c.id
+  `;
+
+  const conditions: string[] = [];
+  const params: any[] = [];
+
+  if (filter?.categoryId) {
+    conditions.push('m.category_id = ?');
+    params.push(filter.categoryId);
+  }
+
+  if (filter?.search && filter.search.trim().length > 0) {
+    conditions.push('(m.text LIKE ? OR m.title LIKE ? OR m.location_name LIKE ?)');
+    const searchTerm = `%${filter.search.trim()}%`;
+    params.push(searchTerm, searchTerm, searchTerm);
+  }
+
+  if (conditions.length > 0) {
+    query += ` WHERE ${conditions.join(' AND ')}`;
+  }
+
+  query += ' ORDER BY m.created_at DESC;';
+
+  const momentRows = await db.getAllAsync<MomentRow>(query, ...params);
+  if (momentRows.length === 0) return [];
+
+  // Fetch images for previews
+  const imageRows = await db.getAllAsync<MomentImageRow>(
+    'SELECT id, moment_id, uri, order_index, created_at FROM moment_images ORDER BY order_index ASC;'
+  );
+
+  const imagesByMomentId = new Map<string, MomentImageRow[]>();
+  for (const img of imageRows) {
+    const list = imagesByMomentId.get(img.moment_id) || [];
+    list.push(img);
+    imagesByMomentId.set(img.moment_id, list);
+  }
+
+  const currentYear = new Date().getFullYear();
+  const sectionsMap = new Map<string, { label: string; moments: MomentPreview[] }>();
+
+  for (const row of momentRows) {
+    const date = new Date(row.created_at);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const key = `${year}-${month}`;
+
+    if (!sectionsMap.has(key)) {
+      const monthName = date.toLocaleDateString(undefined, { month: 'long' });
+      // Current year shows only month name; earlier years show year as well per DESIGN-home.md §2
+      const label = year === currentYear ? monthName : `${monthName} ${year}`;
+      sectionsMap.set(key, { label, moments: [] });
+    }
+
+    const allImages = imagesByMomentId.get(row.id) || [];
+    const previewPhotos = allImages.slice(0, 3).map((img) => ({
+      thumbUri: img.uri,
+    }));
+
+    // Truncate text to ~200 characters per DESIGN-home.md §6 and strip markdown symbols per §4b
+    let previewText: string | undefined = undefined;
+    if (row.text && row.text.trim().length > 0) {
+      const plain = stripMarkdown(row.text);
+      previewText = plain.length > 200 ? plain.slice(0, 200) + '...' : plain;
+    }
+
+    const preview: MomentPreview = {
+      id: row.id,
+      createdAt: row.created_at,
+      text: previewText,
+      category:
+        row.category_id && row.category_name
+          ? {
+              id: row.category_id,
+              name: row.category_name,
+            }
+          : undefined,
+      voice: row.audio_uri
+        ? {
+            durationMs: row.audio_duration || 0,
+          }
+        : undefined,
+      photos: previewPhotos,
+      photoCount: allImages.length,
+      locationName: row.location_name,
+    };
+
+    sectionsMap.get(key)!.moments.push(preview);
+  }
+
+  const sections: Section[] = [];
+  for (const [key, val] of sectionsMap.entries()) {
+    sections.push({
+      key,
+      label: val.label,
+      moments: val.moments,
+    });
+  }
+
+  return sections;
+}
+

@@ -1,7 +1,6 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
-  TextInput,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
@@ -24,6 +23,7 @@ import {
   Tag,
   MapPin,
   Square,
+  MoreHorizontal,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
@@ -34,16 +34,21 @@ import {
   requestRecordingPermissionsAsync,
 } from 'expo-audio';
 import { useTheme } from '@/theme/ThemeContext';
-import { type as typeTokens, spacing, radius, hitSlop, motion } from '@/theme/tokens';
+import { type as typeTokens, spacing, radius, hitSlop, motion, fonts } from '@/theme/tokens';
 import { Category, Moment } from '@/types/moment';
 import {
   getCategories,
   createMoment,
   updateMoment,
   getMomentById,
+  createCategory,
 } from '@/services/db/momentRepository';
 import { Mote } from '@/components/Mote';
 import { AudioPlayer } from '@/components/moment/AudioPlayer';
+import { PhotoSheet } from '@/components/capture/PhotoSheet';
+import { MoreSheet } from '@/components/capture/MoreSheet';
+import { stripMarkdown } from '@/utils/markdown';
+import { EnrichedTextInput, EnrichedTextInputInstance } from 'react-native-enriched-html';
 
 export default function CaptureScreen() {
   const { colors } = useTheme();
@@ -51,10 +56,12 @@ export default function CaptureScreen() {
   const params = useLocalSearchParams<{ autoRecord?: string; editId?: string }>();
 
   const isEditing = !!params.editId;
-  const textRef = useRef<TextInput>(null);
+  const editorRef = useRef<EnrichedTextInputInstance>(null);
 
   // Moment form state
   const [text, setText] = useState('');
+  const [plainText, setPlainText] = useState('');
+  const htmlContentRef = useRef('');
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [audioUri, setAudioUri] = useState<string | null>(null);
@@ -64,7 +71,69 @@ export default function CaptureScreen() {
   const [originalMoment, setOriginalMoment] = useState<Moment | null>(null);
 
   const [saving, setSaving] = useState(false);
-  const [showCategories, setShowCategories] = useState(false);
+  const [showPhotoSheet, setShowPhotoSheet] = useState(false);
+  const [showMoreSheet, setShowMoreSheet] = useState(false);
+  const [moreSheetMode, setMoreSheetMode] = useState<'main' | 'category'>('main');
+
+  // Formatting toolbar state per DESIGN-capture.md §4 (with H1 and H2)
+  const [toolbarMode, setToolbarMode] = useState<'normal' | 'formatting'>('normal');
+  const toolbarFadeAnim = useRef(new Animated.Value(0)).current; // 0 = normal, 1 = formatting
+
+  const [activeFormats, setActiveFormats] = useState({
+    h1: false,
+    h2: false,
+    bold: false,
+    italic: false,
+  });
+
+  const switchToolbarMode = (targetMode: 'normal' | 'formatting') => {
+    try {
+      Haptics.selectionAsync();
+    } catch (_) {}
+
+    if (targetMode === 'formatting') {
+      editorRef.current?.focus();
+    }
+
+    setToolbarMode(targetMode);
+    if (reduceMotion) {
+      toolbarFadeAnim.setValue(targetMode === 'formatting' ? 1 : 0);
+    } else {
+      Animated.timing(toolbarFadeAnim, {
+        toValue: targetMode === 'formatting' ? 1 : 0,
+        duration: motion.fast,
+        useNativeDriver: true,
+      }).start();
+    }
+  };
+
+  const handleToggleH1 = () => {
+    try {
+      Haptics.selectionAsync();
+    } catch (_) {}
+    editorRef.current?.toggleH1();
+  };
+
+  const handleToggleH2 = () => {
+    try {
+      Haptics.selectionAsync();
+    } catch (_) {}
+    editorRef.current?.toggleH2();
+  };
+
+  const handleToggleBold = () => {
+    try {
+      Haptics.selectionAsync();
+    } catch (_) {}
+    editorRef.current?.toggleBold();
+  };
+
+  const handleToggleItalic = () => {
+    try {
+      Haptics.selectionAsync();
+    } catch (_) {}
+    editorRef.current?.toggleItalic();
+  };
 
   // Audio recording state
   const [isRecording, setIsRecording] = useState(false);
@@ -97,6 +166,9 @@ export default function CaptureScreen() {
           if (m) {
             setOriginalMoment(m);
             setText(m.text || '');
+            setPlainText(stripMarkdown(m.text || ''));
+            htmlContentRef.current = m.text || '';
+            editorRef.current?.setValue(m.text || '');
             setSelectedCategoryId(m.categoryId || null);
             setAudioUri(m.audioUri || null);
             setAudioDuration(m.audioDuration || null);
@@ -113,7 +185,7 @@ export default function CaptureScreen() {
     if (params.autoRecord === '1') {
       startRecording();
     } else if (!isEditing) {
-      const timer = setTimeout(() => textRef.current?.focus(), 150);
+      const timer = setTimeout(() => editorRef.current?.focus(), 150);
       return () => clearTimeout(timer);
     }
   }, [params.autoRecord, isEditing]);
@@ -227,13 +299,46 @@ export default function CaptureScreen() {
     setRecordDurationSec(0);
   };
 
-  // Pick photos from photo library
-  const handlePickPhotos = async () => {
+  // Take photo with camera per DESIGN-capture.md §3
+  const handleTakePhoto = async () => {
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          'Camera access',
+          'Drift needs camera access to take a photo for this moment.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Open settings',
+              onPress: () => Linking.openSettings(),
+            },
+          ]
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images'],
+        quality: 0.85,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const newUris = result.assets.map((a) => a.uri);
+        setImageUris((prev) => [...prev, ...newUris]);
+      }
+    } catch (err) {
+      console.warn('Error taking photo:', err);
+    }
+  };
+
+  // Choose photos from library per DESIGN-capture.md §3
+  const handleChooseFromLibrary = async () => {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert(
-          'Photos Access',
+          'Photos access',
           'Drift needs access to your photos to add them to a moment.',
           [
             { text: 'Cancel', style: 'cancel' },
@@ -335,8 +440,22 @@ export default function CaptureScreen() {
     }
   };
 
+  const handleCreateCategory = async (name: string): Promise<Category | void> => {
+    try {
+      const PALETTE = ['#8CA697', '#C5A376', '#A29BB2', '#829EB3', '#9EA6B4', '#B49EA6'];
+      const chosenColor = PALETTE[categories.length % PALETTE.length];
+      const newCat = await createCategory(name, chosenColor);
+      setCategories((prev) => [...prev, newCat]);
+      setSelectedCategoryId(newCat.id);
+      return newCat;
+    } catch (err) {
+      console.warn('Could not create category:', err);
+      Alert.alert('Error', 'Could not create category. Please try again.');
+    }
+  };
+
   const hasContent =
-    text.trim().length > 0 || !!audioUri || imageUris.length > 0 || !!locationName;
+    plainText.trim().length > 0 || !!audioUri || imageUris.length > 0 || !!locationName;
 
   // Check if anything changed from original
   const isDirty = (() => {
@@ -344,7 +463,7 @@ export default function CaptureScreen() {
     if (!originalMoment) return false;
     const origImages = originalMoment.images ? originalMoment.images.map((i) => i.uri) : [];
     return (
-      text.trim() !== (originalMoment.text || '').trim() ||
+      plainText.trim() !== stripMarkdown(originalMoment.text || '').trim() ||
       selectedCategoryId !== (originalMoment.categoryId || null) ||
       audioUri !== (originalMoment.audioUri || null) ||
       locationName !== (originalMoment.locationName || null) ||
@@ -416,10 +535,18 @@ export default function CaptureScreen() {
     });
 
     const savePromise = (async () => {
+      let contentToSave = '';
+      try {
+        contentToSave = (await editorRef.current?.getHTML()) || htmlContentRef.current || plainText;
+      } catch (_) {
+        contentToSave = htmlContentRef.current || plainText;
+      }
+      contentToSave = contentToSave.trim();
+
       if (isEditing && params.editId) {
         await updateMoment({
           id: params.editId,
-          text: text.trim(),
+          text: contentToSave,
           categoryId: selectedCategoryId,
           audioUri: audioUri ?? null,
           audioDuration: audioDuration ?? null,
@@ -428,7 +555,7 @@ export default function CaptureScreen() {
         });
       } else {
         await createMoment({
-          text: text.trim(),
+          text: contentToSave,
           categoryId: selectedCategoryId,
           audioUri: audioUri ?? undefined,
           audioDuration: audioDuration ?? undefined,
@@ -465,6 +592,16 @@ export default function CaptureScreen() {
   const driftOpacity = keepAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [1, 0],
+  });
+
+  // Crossfade over motion.fast (160ms) per DESIGN-capture.md §4
+  const normalOpacity = toolbarFadeAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 0],
+  });
+  const formattingOpacity = toolbarFadeAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 1],
   });
 
   // ── Recording State View ──────────────────────────────────────────
@@ -522,7 +659,7 @@ export default function CaptureScreen() {
   // ── Main Capture / Edit View ──────────────────────────────────────
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={[styles.root, { backgroundColor: colors.bg }]}
     >
       <Animated.View
@@ -555,20 +692,42 @@ export default function CaptureScreen() {
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Multiline serif input */}
-          <TextInput
-            ref={textRef}
-            multiline
+          {/* Multiline serif enriched editor per DESIGN-capture.md §4 */}
+          <EnrichedTextInput
+            ref={editorRef}
+            defaultValue={text}
+            autoFocus={!isEditing && params.autoRecord !== '1'}
+            scrollEnabled={false}
             placeholder="What is drifting through your mind?"
             placeholderTextColor={colors.muted}
-            value={text}
-            onChangeText={setText}
-            style={[
-              typeTokens.prompt,
-              styles.textInput,
-              { color: colors.text },
-            ]}
-            textAlignVertical="top"
+            cursorColor={colors.accent}
+            selectionColor={colors.accent + '35'}
+            style={{
+              ...styles.textInput,
+              fontFamily: fonts.serif,
+              fontSize: 22,
+              lineHeight: 30,
+              color: colors.text,
+            }}
+            htmlStyle={{
+              h1: { fontSize: 24, bold: true },
+              h2: { fontSize: 20, bold: true },
+            }}
+            onChangeText={(e) => {
+              setPlainText(e.nativeEvent.value);
+            }}
+            onChangeHtml={(e) => {
+              htmlContentRef.current = e.nativeEvent.value;
+            }}
+            onChangeState={(e) => {
+              const s = e.nativeEvent;
+              setActiveFormats({
+                h1: s.h1?.isActive ?? false,
+                h2: s.h2?.isActive ?? false,
+                bold: s.bold?.isActive ?? false,
+                italic: s.italic?.isActive ?? false,
+              });
+            }}
           />
 
           {/* Attached Voice Pill */}
@@ -629,106 +788,247 @@ export default function CaptureScreen() {
             </View>
           )}
 
-          {/* Attached category indicator */}
+          {/* Attached category indicator per DESIGN-capture.md §5 */}
           {selectedCategory && (
-            <View style={styles.attachedCategory}>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => {
+                Keyboard.dismiss();
+                setMoreSheetMode('category');
+                setShowMoreSheet(true);
+              }}
+              style={styles.attachedCategory}
+              accessibilityRole="button"
+              accessibilityLabel={`Category: ${selectedCategory.name}. Tap to change.`}
+            >
               <View style={[styles.glowDot, { backgroundColor: colors.glow }]} />
               <Text style={[typeTokens.meta, { color: colors.muted }]}>
                 {selectedCategory.name}
               </Text>
-            </View>
-          )}
-
-          {/* Category picker */}
-          {showCategories && (
-            <View style={styles.categoryList}>
-              {categories.map((cat) => {
-                const isSelected = selectedCategoryId === cat.id;
-                return (
-                  <TouchableOpacity
-                    key={cat.id}
-                    activeOpacity={0.7}
-                    onPress={() => toggleCategory(cat.id)}
-                    style={[
-                      styles.categoryChip,
-                      {
-                        backgroundColor: isSelected ? colors.accent + '20' : colors.surface,
-                      },
-                    ]}
-                  >
-                    <View style={[styles.glowDot, { backgroundColor: colors.glow }]} />
-                    <Text
-                      style={[
-                        typeTokens.meta,
-                        { color: isSelected ? colors.accent : colors.muted },
-                      ]}
-                    >
-                      {cat.name}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+            </TouchableOpacity>
           )}
         </ScrollView>
 
         {/* Bottom toolbar + Keep button */}
         <View style={styles.bottomArea}>
-          {/* Four toolbar buttons: record, photos, category, location */}
+          {/* Four toolbar buttons: normal or formatting mode per DESIGN-capture.md §2 & §4 */}
           <View style={styles.toolbar}>
-            <TouchableOpacity
-              activeOpacity={0.7}
-              onPress={startRecording}
-              accessibilityLabel="Record"
-              style={[styles.toolBtn, { backgroundColor: colors.accent }]}
-            >
-              <Mic size={20} color={colors.onAccent} strokeWidth={2} />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              activeOpacity={0.7}
-              onPress={handlePickPhotos}
-              accessibilityLabel="Add photos"
-              style={[styles.toolBtn, { backgroundColor: colors.surface }]}
-            >
-              <ImageLucide size={20} color={colors.muted} strokeWidth={1.8} />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              activeOpacity={0.7}
-              accessibilityLabel="Category"
-              onPress={() => setShowCategories(!showCategories)}
+            {/* Normal toolbar row */}
+            <Animated.View
               style={[
-                styles.toolBtn,
+                styles.toolbarRow,
                 {
-                  backgroundColor: showCategories ? colors.accent + '20' : colors.surface,
+                  opacity: normalOpacity,
                 },
               ]}
+              pointerEvents={toolbarMode === 'normal' ? 'auto' : 'none'}
             >
-              <Tag
-                size={20}
-                color={showCategories ? colors.accent : colors.muted}
-                strokeWidth={1.8}
-              />
-            </TouchableOpacity>
+              {/* 1. Record */}
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={startRecording}
+                accessibilityRole="button"
+                accessibilityLabel="Record"
+                style={[styles.toolBtn, { backgroundColor: colors.accent }]}
+              >
+                <Mic size={20} color={colors.onAccent} strokeWidth={2} />
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              activeOpacity={0.7}
-              onPress={handleLocationPress}
-              accessibilityLabel="Location"
+              {/* 2. Photo */}
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setShowPhotoSheet(true);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Add photo"
+                style={[styles.toolBtn, { backgroundColor: colors.surface }]}
+              >
+                <ImageLucide size={20} color={colors.muted} strokeWidth={1.8} />
+              </TouchableOpacity>
+
+              {/* 3. Aa (formatting toggle) */}
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => switchToolbarMode('formatting')}
+                accessibilityRole="button"
+                accessibilityLabel="Formatting"
+                style={[styles.toolBtn, { backgroundColor: colors.surface }]}
+              >
+                <Text
+                  style={{
+                    fontFamily: fonts.serifSemiBold,
+                    fontSize: 18,
+                    lineHeight: 22,
+                    color: colors.muted,
+                  }}
+                >
+                  Aa
+                </Text>
+              </TouchableOpacity>
+
+              {/* 4. More */}
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setMoreSheetMode('main');
+                  setShowMoreSheet(true);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="More"
+                style={[
+                  styles.toolBtn,
+                  {
+                    backgroundColor:
+                      selectedCategoryId || locationName ? colors.accent + '20' : colors.surface,
+                  },
+                ]}
+              >
+                <MoreHorizontal
+                  size={20}
+                  color={selectedCategoryId || locationName ? colors.accent : colors.muted}
+                  strokeWidth={1.8}
+                />
+              </TouchableOpacity>
+            </Animated.View>
+
+            {/* Formatting toolbar row: Aa, H1, H2, B, I */}
+            <Animated.View
               style={[
-                styles.toolBtn,
+                styles.toolbarRow,
+                styles.formattingRowOverlay,
                 {
-                  backgroundColor: locationName ? colors.accent + '20' : colors.surface,
+                  opacity: formattingOpacity,
                 },
               ]}
+              pointerEvents={toolbarMode === 'formatting' ? 'auto' : 'none'}
             >
-              <MapPin
-                size={20}
-                color={locationName ? colors.accent : colors.muted}
-                strokeWidth={1.8}
-              />
-            </TouchableOpacity>
+              {/* 1. Aa (active, returns to normal toolbar) */}
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => switchToolbarMode('normal')}
+                accessibilityRole="button"
+                accessibilityLabel="Exit formatting"
+                style={[styles.toolBtn, { backgroundColor: colors.accent }]}
+              >
+                <Text
+                  style={{
+                    fontFamily: fonts.serifSemiBold,
+                    fontSize: 18,
+                    lineHeight: 22,
+                    color: colors.onAccent,
+                  }}
+                >
+                  Aa
+                </Text>
+              </TouchableOpacity>
+
+              {/* 2. Heading 1 (H1) */}
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={handleToggleH1}
+                accessibilityRole="button"
+                accessibilityLabel="Heading 1"
+                accessibilityState={{ selected: activeFormats.h1 }}
+                style={[
+                  styles.toolBtn,
+                  {
+                    backgroundColor: activeFormats.h1 ? colors.accent : colors.surface,
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    fontFamily: fonts.serifSemiBold,
+                    fontSize: 16,
+                    lineHeight: 20,
+                    color: activeFormats.h1 ? colors.onAccent : colors.muted,
+                  }}
+                >
+                  H1
+                </Text>
+              </TouchableOpacity>
+
+              {/* 3. Heading 2 (H2) */}
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={handleToggleH2}
+                accessibilityRole="button"
+                accessibilityLabel="Heading 2"
+                accessibilityState={{ selected: activeFormats.h2 }}
+                style={[
+                  styles.toolBtn,
+                  {
+                    backgroundColor: activeFormats.h2 ? colors.accent : colors.surface,
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    fontFamily: fonts.serifSemiBold,
+                    fontSize: 16,
+                    lineHeight: 20,
+                    color: activeFormats.h2 ? colors.onAccent : colors.muted,
+                  }}
+                >
+                  H2
+                </Text>
+              </TouchableOpacity>
+
+              {/* 4. Bold (B) */}
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={handleToggleBold}
+                accessibilityRole="button"
+                accessibilityLabel="Bold"
+                accessibilityState={{ selected: activeFormats.bold }}
+                style={[
+                  styles.toolBtn,
+                  {
+                    backgroundColor: activeFormats.bold ? colors.accent : colors.surface,
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    fontFamily: fonts.serifSemiBold,
+                    fontSize: 18,
+                    lineHeight: 22,
+                    color: activeFormats.bold ? colors.onAccent : colors.muted,
+                  }}
+                >
+                  B
+                </Text>
+              </TouchableOpacity>
+
+              {/* 5. Italic (I) */}
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={handleToggleItalic}
+                accessibilityRole="button"
+                accessibilityLabel="Italic"
+                accessibilityState={{ selected: activeFormats.italic }}
+                style={[
+                  styles.toolBtn,
+                  {
+                    backgroundColor: activeFormats.italic ? colors.accent : colors.surface,
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    fontFamily: fonts.serifItalic,
+                    fontSize: 18,
+                    lineHeight: 22,
+                    color: activeFormats.italic ? colors.onAccent : colors.muted,
+                  }}
+                >
+                  I
+                </Text>
+              </TouchableOpacity>
+            </Animated.View>
           </View>
 
           {/* Keep button: "Keep" or "Keep changes" */}
@@ -756,6 +1056,27 @@ export default function CaptureScreen() {
           </TouchableOpacity>
         </View>
       </Animated.View>
+
+      {/* Photo Sheet bottom sheet per DESIGN-capture.md §3 */}
+      <PhotoSheet
+        visible={showPhotoSheet}
+        onClose={() => setShowPhotoSheet(false)}
+        onTakePhoto={handleTakePhoto}
+        onChooseFromLibrary={handleChooseFromLibrary}
+      />
+
+      {/* More Sheet bottom sheet per DESIGN-capture.md §5 */}
+      <MoreSheet
+        visible={showMoreSheet}
+        initialMode={moreSheetMode}
+        onClose={() => setShowMoreSheet(false)}
+        categories={categories}
+        selectedCategoryId={selectedCategoryId}
+        onSelectCategory={(id) => setSelectedCategoryId(id)}
+        onCreateCategory={handleCreateCategory}
+        locationName={locationName}
+        onLocationPress={handleLocationPress}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -822,7 +1143,6 @@ const styles = StyleSheet.create({
   },
   textInput: {
     minHeight: 140,
-    textAlignVertical: 'top',
   },
   attachedMediaBlock: {
     marginTop: spacing.md,
@@ -894,10 +1214,22 @@ const styles = StyleSheet.create({
     paddingTop: spacing.xs,
   },
   toolbar: {
-    flexDirection: 'row',
-    justifyContent: 'flex-start',
-    gap: spacing.sm,
+    height: 44,
     marginBottom: spacing.md,
+    position: 'relative',
+  },
+  toolbarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    height: 44,
+  },
+  formattingRowOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
   toolBtn: {
     width: 44,
