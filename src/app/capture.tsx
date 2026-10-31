@@ -24,6 +24,7 @@ import {
   Tag,
   MapPin,
   Square,
+  MoreHorizontal,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
@@ -34,7 +35,7 @@ import {
   requestRecordingPermissionsAsync,
 } from 'expo-audio';
 import { useTheme } from '@/theme/ThemeContext';
-import { type as typeTokens, spacing, radius, hitSlop, motion } from '@/theme/tokens';
+import { type as typeTokens, spacing, radius, hitSlop, motion, fonts } from '@/theme/tokens';
 import { Category, Moment } from '@/types/moment';
 import {
   getCategories,
@@ -44,6 +45,8 @@ import {
 } from '@/services/db/momentRepository';
 import { Mote } from '@/components/Mote';
 import { AudioPlayer } from '@/components/moment/AudioPlayer';
+import { PhotoSheet } from '@/components/capture/PhotoSheet';
+import { MoreSheet } from '@/components/capture/MoreSheet';
 
 export default function CaptureScreen() {
   const { colors } = useTheme();
@@ -64,7 +67,9 @@ export default function CaptureScreen() {
   const [originalMoment, setOriginalMoment] = useState<Moment | null>(null);
 
   const [saving, setSaving] = useState(false);
-  const [showCategories, setShowCategories] = useState(false);
+  const [showPhotoSheet, setShowPhotoSheet] = useState(false);
+  const [showMoreSheet, setShowMoreSheet] = useState(false);
+  const [moreSheetMode, setMoreSheetMode] = useState<'main' | 'category'>('main');
 
   // Audio recording state
   const [isRecording, setIsRecording] = useState(false);
@@ -227,13 +232,46 @@ export default function CaptureScreen() {
     setRecordDurationSec(0);
   };
 
-  // Pick photos from photo library
-  const handlePickPhotos = async () => {
+  // Take photo with camera per DESIGN-capture.md §3
+  const handleTakePhoto = async () => {
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          'Camera access',
+          'Drift needs camera access to take a photo for this moment.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Open settings',
+              onPress: () => Linking.openSettings(),
+            },
+          ]
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images'],
+        quality: 0.85,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const newUris = result.assets.map((a) => a.uri);
+        setImageUris((prev) => [...prev, ...newUris]);
+      }
+    } catch (err) {
+      console.warn('Error taking photo:', err);
+    }
+  };
+
+  // Choose photos from library per DESIGN-capture.md §3
+  const handleChooseFromLibrary = async () => {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert(
-          'Photos Access',
+          'Photos access',
           'Drift needs access to your photos to add them to a moment.',
           [
             { text: 'Cancel', style: 'cancel' },
@@ -629,103 +667,100 @@ export default function CaptureScreen() {
             </View>
           )}
 
-          {/* Attached category indicator */}
+          {/* Attached category indicator per DESIGN-capture.md §5 */}
           {selectedCategory && (
-            <View style={styles.attachedCategory}>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => {
+                Keyboard.dismiss();
+                setMoreSheetMode('category');
+                setShowMoreSheet(true);
+              }}
+              style={styles.attachedCategory}
+              accessibilityRole="button"
+              accessibilityLabel={`Category: ${selectedCategory.name}. Tap to change.`}
+            >
               <View style={[styles.glowDot, { backgroundColor: colors.glow }]} />
               <Text style={[typeTokens.meta, { color: colors.muted }]}>
                 {selectedCategory.name}
               </Text>
-            </View>
-          )}
-
-          {/* Category picker */}
-          {showCategories && (
-            <View style={styles.categoryList}>
-              {categories.map((cat) => {
-                const isSelected = selectedCategoryId === cat.id;
-                return (
-                  <TouchableOpacity
-                    key={cat.id}
-                    activeOpacity={0.7}
-                    onPress={() => toggleCategory(cat.id)}
-                    style={[
-                      styles.categoryChip,
-                      {
-                        backgroundColor: isSelected ? colors.accent + '20' : colors.surface,
-                      },
-                    ]}
-                  >
-                    <View style={[styles.glowDot, { backgroundColor: colors.glow }]} />
-                    <Text
-                      style={[
-                        typeTokens.meta,
-                        { color: isSelected ? colors.accent : colors.muted },
-                      ]}
-                    >
-                      {cat.name}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+            </TouchableOpacity>
           )}
         </ScrollView>
 
         {/* Bottom toolbar + Keep button */}
         <View style={styles.bottomArea}>
-          {/* Four toolbar buttons: record, photos, category, location */}
+          {/* Four toolbar buttons: record, photo, Aa, more per DESIGN-capture.md §2 */}
           <View style={styles.toolbar}>
+            {/* 1. Record */}
             <TouchableOpacity
               activeOpacity={0.7}
               onPress={startRecording}
+              accessibilityRole="button"
               accessibilityLabel="Record"
               style={[styles.toolBtn, { backgroundColor: colors.accent }]}
             >
               <Mic size={20} color={colors.onAccent} strokeWidth={2} />
             </TouchableOpacity>
 
+            {/* 2. Photo */}
             <TouchableOpacity
               activeOpacity={0.7}
-              onPress={handlePickPhotos}
-              accessibilityLabel="Add photos"
+              onPress={() => {
+                Keyboard.dismiss();
+                setShowPhotoSheet(true);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Add photo"
               style={[styles.toolBtn, { backgroundColor: colors.surface }]}
             >
               <ImageLucide size={20} color={colors.muted} strokeWidth={1.8} />
             </TouchableOpacity>
 
+            {/* 3. Aa (formatting) */}
             <TouchableOpacity
               activeOpacity={0.7}
-              accessibilityLabel="Category"
-              onPress={() => setShowCategories(!showCategories)}
-              style={[
-                styles.toolBtn,
-                {
-                  backgroundColor: showCategories ? colors.accent + '20' : colors.surface,
-                },
-              ]}
+              onPress={() => {
+                // Focus text input if not focused
+                textRef.current?.focus();
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Formatting"
+              style={[styles.toolBtn, { backgroundColor: colors.surface }]}
             >
-              <Tag
-                size={20}
-                color={showCategories ? colors.accent : colors.muted}
-                strokeWidth={1.8}
-              />
+              <Text
+                style={{
+                  fontFamily: fonts.serif,
+                  fontSize: 18,
+                  lineHeight: 22,
+                  color: colors.muted,
+                }}
+              >
+                Aa
+              </Text>
             </TouchableOpacity>
 
+            {/* 4. More */}
             <TouchableOpacity
               activeOpacity={0.7}
-              onPress={handleLocationPress}
-              accessibilityLabel="Location"
+              onPress={() => {
+                Keyboard.dismiss();
+                setMoreSheetMode('main');
+                setShowMoreSheet(true);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="More"
               style={[
                 styles.toolBtn,
                 {
-                  backgroundColor: locationName ? colors.accent + '20' : colors.surface,
+                  backgroundColor:
+                    selectedCategoryId || locationName ? colors.accent + '20' : colors.surface,
                 },
               ]}
             >
-              <MapPin
+              <MoreHorizontal
                 size={20}
-                color={locationName ? colors.accent : colors.muted}
+                color={selectedCategoryId || locationName ? colors.accent : colors.muted}
                 strokeWidth={1.8}
               />
             </TouchableOpacity>
@@ -756,6 +791,26 @@ export default function CaptureScreen() {
           </TouchableOpacity>
         </View>
       </Animated.View>
+
+      {/* Photo Sheet bottom sheet per DESIGN-capture.md §3 */}
+      <PhotoSheet
+        visible={showPhotoSheet}
+        onClose={() => setShowPhotoSheet(false)}
+        onTakePhoto={handleTakePhoto}
+        onChooseFromLibrary={handleChooseFromLibrary}
+      />
+
+      {/* More Sheet bottom sheet per DESIGN-capture.md §5 */}
+      <MoreSheet
+        visible={showMoreSheet}
+        initialMode={moreSheetMode}
+        onClose={() => setShowMoreSheet(false)}
+        categories={categories}
+        selectedCategoryId={selectedCategoryId}
+        onSelectCategory={(id) => setSelectedCategoryId(id)}
+        locationName={locationName}
+        onLocationPress={handleLocationPress}
+      />
     </KeyboardAvoidingView>
   );
 }
