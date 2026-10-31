@@ -21,6 +21,7 @@ import { Moment } from '@/types/moment';
 import { getMomentById, deleteMoment } from '@/services/db/momentRepository';
 import { AudioPlayer } from '@/components/moment/AudioPlayer';
 import { MarkdownText } from '@/components/moment/MarkdownText';
+import { EnrichedText } from 'react-native-enriched-html';
 
 export default function MomentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -184,13 +185,29 @@ export default function MomentDetailScreen() {
           {yearTimeLabel}
         </Text>
 
-        {/* Text content rendered as Markdown per DESIGN-capture.md §4b */}
+        {/* Text content rendered with EnrichedText or MarkdownText per DESIGN-capture.md §4b */}
         {hasText && (
-          <MarkdownText
-            content={moment.text!}
-            baseTypeStyle={typeTokens.momentDetail}
-            style={styles.body}
-          />
+          /<[a-z][\s\S]*>/i.test(moment.text!) ? (
+            <EnrichedText
+              style={{
+                ...typeTokens.momentDetail,
+                ...styles.body,
+                color: colors.text,
+              }}
+              htmlStyle={{
+                h1: { fontSize: 24, bold: true },
+                h2: { fontSize: 20, bold: true },
+              }}
+            >
+              {moment.text!}
+            </EnrichedText>
+          ) : (
+            <MarkdownText
+              content={moment.text!}
+              baseTypeStyle={typeTokens.momentDetail}
+              style={styles.body}
+            />
+          )
         )}
 
         {/* Voice player per DESIGN.md §6.6 */}

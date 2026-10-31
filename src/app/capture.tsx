@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
-  TextInput,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
@@ -47,15 +46,8 @@ import { Mote } from '@/components/Mote';
 import { AudioPlayer } from '@/components/moment/AudioPlayer';
 import { PhotoSheet } from '@/components/capture/PhotoSheet';
 import { MoreSheet } from '@/components/capture/MoreSheet';
-import { MarkdownText } from '@/components/moment/MarkdownText';
-import {
-  toggleH1,
-  toggleH2,
-  toggleBold,
-  toggleItalic,
-  detectActiveFormats,
-  TextSelection,
-} from '@/utils/markdown';
+import { stripMarkdown } from '@/utils/markdown';
+import { EnrichedTextInput, EnrichedTextInputInstance } from 'react-native-enriched-html';
 
 export default function CaptureScreen() {
   const { colors } = useTheme();
@@ -63,10 +55,12 @@ export default function CaptureScreen() {
   const params = useLocalSearchParams<{ autoRecord?: string; editId?: string }>();
 
   const isEditing = !!params.editId;
-  const textRef = useRef<TextInput>(null);
+  const editorRef = useRef<EnrichedTextInputInstance>(null);
 
   // Moment form state
   const [text, setText] = useState('');
+  const [plainText, setPlainText] = useState('');
+  const htmlContentRef = useRef('');
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [audioUri, setAudioUri] = useState<string | null>(null);
@@ -83,16 +77,13 @@ export default function CaptureScreen() {
   // Formatting toolbar state per DESIGN-capture.md §4 (with H1 and H2)
   const [toolbarMode, setToolbarMode] = useState<'normal' | 'formatting'>('normal');
   const toolbarFadeAnim = useRef(new Animated.Value(0)).current; // 0 = normal, 1 = formatting
-  const [selection, setSelection] = useState<TextSelection>({ start: 0, end: 0 });
-  const selectionRef = useRef<TextSelection>({ start: 0, end: 0 });
 
-  const activeFormats = useMemo(() => {
-    return detectActiveFormats(text, selection);
-  }, [text, selection]);
-
-  const hasFormatting = useMemo(() => {
-    return /^(#|##)\s|\*\*|\*/m.test(text);
-  }, [text]);
+  const [activeFormats, setActiveFormats] = useState({
+    h1: false,
+    h2: false,
+    bold: false,
+    italic: false,
+  });
 
   const switchToolbarMode = (targetMode: 'normal' | 'formatting') => {
     try {
@@ -100,7 +91,7 @@ export default function CaptureScreen() {
     } catch (_) {}
 
     if (targetMode === 'formatting') {
-      textRef.current?.focus();
+      editorRef.current?.focus();
     }
 
     setToolbarMode(targetMode);
@@ -116,51 +107,31 @@ export default function CaptureScreen() {
   };
 
   const handleToggleH1 = () => {
-    const curSel = selectionRef.current;
-    const res = toggleH1(text, curSel);
-    setText(res.text);
-    selectionRef.current = res.selection;
-    setSelection(res.selection);
     try {
       Haptics.selectionAsync();
     } catch (_) {}
-    setTimeout(() => textRef.current?.focus(), 10);
+    editorRef.current?.toggleH1();
   };
 
   const handleToggleH2 = () => {
-    const curSel = selectionRef.current;
-    const res = toggleH2(text, curSel);
-    setText(res.text);
-    selectionRef.current = res.selection;
-    setSelection(res.selection);
     try {
       Haptics.selectionAsync();
     } catch (_) {}
-    setTimeout(() => textRef.current?.focus(), 10);
+    editorRef.current?.toggleH2();
   };
 
   const handleToggleBold = () => {
-    const curSel = selectionRef.current;
-    const res = toggleBold(text, curSel);
-    setText(res.text);
-    selectionRef.current = res.selection;
-    setSelection(res.selection);
     try {
       Haptics.selectionAsync();
     } catch (_) {}
-    setTimeout(() => textRef.current?.focus(), 10);
+    editorRef.current?.toggleBold();
   };
 
   const handleToggleItalic = () => {
-    const curSel = selectionRef.current;
-    const res = toggleItalic(text, curSel);
-    setText(res.text);
-    selectionRef.current = res.selection;
-    setSelection(res.selection);
     try {
       Haptics.selectionAsync();
     } catch (_) {}
-    setTimeout(() => textRef.current?.focus(), 10);
+    editorRef.current?.toggleItalic();
   };
 
   // Audio recording state
@@ -194,6 +165,9 @@ export default function CaptureScreen() {
           if (m) {
             setOriginalMoment(m);
             setText(m.text || '');
+            setPlainText(stripMarkdown(m.text || ''));
+            htmlContentRef.current = m.text || '';
+            editorRef.current?.setValue(m.text || '');
             setSelectedCategoryId(m.categoryId || null);
             setAudioUri(m.audioUri || null);
             setAudioDuration(m.audioDuration || null);
@@ -210,7 +184,7 @@ export default function CaptureScreen() {
     if (params.autoRecord === '1') {
       startRecording();
     } else if (!isEditing) {
-      const timer = setTimeout(() => textRef.current?.focus(), 150);
+      const timer = setTimeout(() => editorRef.current?.focus(), 150);
       return () => clearTimeout(timer);
     }
   }, [params.autoRecord, isEditing]);
@@ -466,7 +440,7 @@ export default function CaptureScreen() {
   };
 
   const hasContent =
-    text.trim().length > 0 || !!audioUri || imageUris.length > 0 || !!locationName;
+    plainText.trim().length > 0 || !!audioUri || imageUris.length > 0 || !!locationName;
 
   // Check if anything changed from original
   const isDirty = (() => {
@@ -474,7 +448,7 @@ export default function CaptureScreen() {
     if (!originalMoment) return false;
     const origImages = originalMoment.images ? originalMoment.images.map((i) => i.uri) : [];
     return (
-      text.trim() !== (originalMoment.text || '').trim() ||
+      plainText.trim() !== stripMarkdown(originalMoment.text || '').trim() ||
       selectedCategoryId !== (originalMoment.categoryId || null) ||
       audioUri !== (originalMoment.audioUri || null) ||
       locationName !== (originalMoment.locationName || null) ||
@@ -546,10 +520,18 @@ export default function CaptureScreen() {
     });
 
     const savePromise = (async () => {
+      let contentToSave = '';
+      try {
+        contentToSave = (await editorRef.current?.getHTML()) || htmlContentRef.current || plainText;
+      } catch (_) {
+        contentToSave = htmlContentRef.current || plainText;
+      }
+      contentToSave = contentToSave.trim();
+
       if (isEditing && params.editId) {
         await updateMoment({
           id: params.editId,
-          text: text.trim(),
+          text: contentToSave,
           categoryId: selectedCategoryId,
           audioUri: audioUri ?? null,
           audioDuration: audioDuration ?? null,
@@ -558,7 +540,7 @@ export default function CaptureScreen() {
         });
       } else {
         await createMoment({
-          text: text.trim(),
+          text: contentToSave,
           categoryId: selectedCategoryId,
           audioUri: audioUri ?? undefined,
           audioDuration: audioDuration ?? undefined,
@@ -662,7 +644,7 @@ export default function CaptureScreen() {
   // ── Main Capture / Edit View ──────────────────────────────────────
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={[styles.root, { backgroundColor: colors.bg }]}
     >
       <Animated.View
@@ -695,25 +677,42 @@ export default function CaptureScreen() {
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Multiline serif input */}
-          <TextInput
-            ref={textRef}
-            multiline
+          {/* Multiline serif enriched editor per DESIGN-capture.md §4 */}
+          <EnrichedTextInput
+            ref={editorRef}
+            defaultValue={text}
+            autoFocus={!isEditing && params.autoRecord !== '1'}
+            scrollEnabled={false}
             placeholder="What is drifting through your mind?"
             placeholderTextColor={colors.muted}
-            value={text}
-            onChangeText={setText}
-            onSelectionChange={(e) => {
-              const sel = e.nativeEvent.selection;
-              selectionRef.current = sel;
-              setSelection(sel);
+            cursorColor={colors.accent}
+            selectionColor={colors.accent + '35'}
+            style={{
+              ...styles.textInput,
+              fontFamily: fonts.serif,
+              fontSize: 22,
+              lineHeight: 30,
+              color: colors.text,
             }}
-            style={[
-              typeTokens.prompt,
-              styles.textInput,
-              { color: colors.text },
-            ]}
-            textAlignVertical="top"
+            htmlStyle={{
+              h1: { fontSize: 24, bold: true },
+              h2: { fontSize: 20, bold: true },
+            }}
+            onChangeText={(e) => {
+              setPlainText(e.nativeEvent.value);
+            }}
+            onChangeHtml={(e) => {
+              htmlContentRef.current = e.nativeEvent.value;
+            }}
+            onChangeState={(e) => {
+              const s = e.nativeEvent;
+              setActiveFormats({
+                h1: s.h1?.isActive ?? false,
+                h2: s.h2?.isActive ?? false,
+                bold: s.bold?.isActive ?? false,
+                italic: s.italic?.isActive ?? false,
+              });
+            }}
           />
 
           {/* Attached Voice Pill */}
@@ -917,11 +916,11 @@ export default function CaptureScreen() {
                 onPress={handleToggleH1}
                 accessibilityRole="button"
                 accessibilityLabel="Heading 1"
-                accessibilityState={{ selected: activeFormats.isH1 }}
+                accessibilityState={{ selected: activeFormats.h1 }}
                 style={[
                   styles.toolBtn,
                   {
-                    backgroundColor: activeFormats.isH1 ? colors.accent : colors.surface,
+                    backgroundColor: activeFormats.h1 ? colors.accent : colors.surface,
                   },
                 ]}
               >
@@ -930,7 +929,7 @@ export default function CaptureScreen() {
                     fontFamily: fonts.serifSemiBold,
                     fontSize: 16,
                     lineHeight: 20,
-                    color: activeFormats.isH1 ? colors.onAccent : colors.muted,
+                    color: activeFormats.h1 ? colors.onAccent : colors.muted,
                   }}
                 >
                   H1
@@ -943,11 +942,11 @@ export default function CaptureScreen() {
                 onPress={handleToggleH2}
                 accessibilityRole="button"
                 accessibilityLabel="Heading 2"
-                accessibilityState={{ selected: activeFormats.isH2 }}
+                accessibilityState={{ selected: activeFormats.h2 }}
                 style={[
                   styles.toolBtn,
                   {
-                    backgroundColor: activeFormats.isH2 ? colors.accent : colors.surface,
+                    backgroundColor: activeFormats.h2 ? colors.accent : colors.surface,
                   },
                 ]}
               >
@@ -956,7 +955,7 @@ export default function CaptureScreen() {
                     fontFamily: fonts.serifSemiBold,
                     fontSize: 16,
                     lineHeight: 20,
-                    color: activeFormats.isH2 ? colors.onAccent : colors.muted,
+                    color: activeFormats.h2 ? colors.onAccent : colors.muted,
                   }}
                 >
                   H2
@@ -969,11 +968,11 @@ export default function CaptureScreen() {
                 onPress={handleToggleBold}
                 accessibilityRole="button"
                 accessibilityLabel="Bold"
-                accessibilityState={{ selected: activeFormats.isBold }}
+                accessibilityState={{ selected: activeFormats.bold }}
                 style={[
                   styles.toolBtn,
                   {
-                    backgroundColor: activeFormats.isBold ? colors.accent : colors.surface,
+                    backgroundColor: activeFormats.bold ? colors.accent : colors.surface,
                   },
                 ]}
               >
@@ -982,7 +981,7 @@ export default function CaptureScreen() {
                     fontFamily: fonts.serifSemiBold,
                     fontSize: 18,
                     lineHeight: 22,
-                    color: activeFormats.isBold ? colors.onAccent : colors.muted,
+                    color: activeFormats.bold ? colors.onAccent : colors.muted,
                   }}
                 >
                   B
@@ -995,11 +994,11 @@ export default function CaptureScreen() {
                 onPress={handleToggleItalic}
                 accessibilityRole="button"
                 accessibilityLabel="Italic"
-                accessibilityState={{ selected: activeFormats.isItalic }}
+                accessibilityState={{ selected: activeFormats.italic }}
                 style={[
                   styles.toolBtn,
                   {
-                    backgroundColor: activeFormats.isItalic ? colors.accent : colors.surface,
+                    backgroundColor: activeFormats.italic ? colors.accent : colors.surface,
                   },
                 ]}
               >
@@ -1008,7 +1007,7 @@ export default function CaptureScreen() {
                     fontFamily: fonts.serifItalic,
                     fontSize: 18,
                     lineHeight: 22,
-                    color: activeFormats.isItalic ? colors.onAccent : colors.muted,
+                    color: activeFormats.italic ? colors.onAccent : colors.muted,
                   }}
                 >
                   I
@@ -1128,7 +1127,6 @@ const styles = StyleSheet.create({
   },
   textInput: {
     minHeight: 140,
-    textAlignVertical: 'top',
   },
   attachedMediaBlock: {
     marginTop: spacing.md,
