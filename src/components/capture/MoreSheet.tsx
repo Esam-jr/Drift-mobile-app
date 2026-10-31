@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
+  TextInput,
   TouchableOpacity,
   StyleSheet,
   Modal,
@@ -10,8 +11,10 @@ import {
   Easing,
   AccessibilityInfo,
   ScrollView,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
-import { Tag, MapPin, ChevronRight, ChevronLeft, Check, X } from 'lucide-react-native';
+import { Tag, MapPin, ChevronRight, ChevronLeft, Check, X, Plus } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/theme/ThemeContext';
@@ -25,6 +28,7 @@ interface MoreSheetProps {
   categories: Category[];
   selectedCategoryId: string | null;
   onSelectCategory: (categoryId: string | null) => void;
+  onCreateCategory?: (name: string) => Promise<Category | void>;
   locationName: string | null;
   onLocationPress: () => void;
 }
@@ -36,6 +40,7 @@ export const MoreSheet: React.FC<MoreSheetProps> = ({
   categories,
   selectedCategoryId,
   onSelectCategory,
+  onCreateCategory,
   locationName,
   onLocationPress,
 }) => {
@@ -43,6 +48,9 @@ export const MoreSheet: React.FC<MoreSheetProps> = ({
   const insets = useSafeAreaInsets();
   const [reduceMotion, setReduceMotion] = useState(false);
   const [mode, setMode] = useState<'main' | 'category'>(initialMode);
+  const [isCreatingCategory, setIsCreatingCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const newCatInputRef = useRef<TextInput>(null);
 
   const slideAnim = useRef(new Animated.Value(0)).current;
 
@@ -55,6 +63,8 @@ export const MoreSheet: React.FC<MoreSheetProps> = ({
   useEffect(() => {
     if (visible) {
       setMode(initialMode);
+      setIsCreatingCategory(false);
+      setNewCategoryName('');
       if (reduceMotion) {
         slideAnim.setValue(1);
       } else {
@@ -67,10 +77,14 @@ export const MoreSheet: React.FC<MoreSheetProps> = ({
       }
     } else {
       slideAnim.setValue(0);
+      setIsCreatingCategory(false);
+      setNewCategoryName('');
     }
   }, [visible, initialMode, reduceMotion]);
 
   const handleDismiss = (callback?: () => void) => {
+    setIsCreatingCategory(false);
+    setNewCategoryName('');
     if (reduceMotion) {
       slideAnim.setValue(0);
       onClose();
@@ -86,6 +100,33 @@ export const MoreSheet: React.FC<MoreSheetProps> = ({
         callback?.();
       });
     }
+  };
+
+  const handleSaveNewCategory = async () => {
+    const trimmed = newCategoryName.trim();
+    if (!trimmed) return;
+    try {
+      Haptics.selectionAsync();
+    } catch (_) {}
+
+    const existing = categories.find((c) => c.name.toLowerCase() === trimmed.toLowerCase());
+    if (existing) {
+      onSelectCategory(existing.id);
+      setIsCreatingCategory(false);
+      setNewCategoryName('');
+      handleDismiss();
+      return;
+    }
+
+    if (onCreateCategory) {
+      const created = await onCreateCategory(trimmed);
+      if (created) {
+        onSelectCategory(created.id);
+      }
+    }
+    setIsCreatingCategory(false);
+    setNewCategoryName('');
+    handleDismiss();
   };
 
   if (!visible) return null;
@@ -109,7 +150,10 @@ export const MoreSheet: React.FC<MoreSheetProps> = ({
       animationType="none"
       onRequestClose={() => handleDismiss()}
     >
-      <View style={styles.overlay}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.overlay}
+      >
         {/* Scrim backdrop */}
         <TouchableWithoutFeedback onPress={() => handleDismiss()}>
           <Animated.View
@@ -230,7 +274,11 @@ export const MoreSheet: React.FC<MoreSheetProps> = ({
               <View style={styles.subHeader}>
                 <TouchableOpacity
                   activeOpacity={0.7}
-                  onPress={() => setMode('main')}
+                  onPress={() => {
+                    setIsCreatingCategory(false);
+                    setNewCategoryName('');
+                    setMode('main');
+                  }}
                   accessibilityRole="button"
                   accessibilityLabel="Back to options"
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -246,10 +294,10 @@ export const MoreSheet: React.FC<MoreSheetProps> = ({
               <View
                 style={[
                   styles.optionsGroup,
-                  { backgroundColor: colors.bg, borderColor: colors.hairline, maxHeight: 260 },
+                  { backgroundColor: colors.bg, borderColor: colors.hairline, maxHeight: 290 },
                 ]}
               >
-                <ScrollView showsVerticalScrollIndicator={false}>
+                <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   {/* None option */}
                   <TouchableOpacity
                     activeOpacity={0.7}
@@ -269,9 +317,8 @@ export const MoreSheet: React.FC<MoreSheetProps> = ({
                   </TouchableOpacity>
 
                   {/* Category items */}
-                  {categories.map((cat, idx) => {
+                  {categories.map((cat) => {
                     const isSelected = selectedCategoryId === cat.id;
-                    const isLast = idx === categories.length - 1;
                     return (
                       <TouchableOpacity
                         key={cat.id}
@@ -285,7 +332,7 @@ export const MoreSheet: React.FC<MoreSheetProps> = ({
                         }}
                         style={[
                           styles.row,
-                          !isLast && { borderBottomColor: colors.hairline },
+                          { borderBottomColor: colors.hairline },
                         ]}
                       >
                         <View style={[styles.glowDot, { backgroundColor: colors.glow }]} />
@@ -298,6 +345,69 @@ export const MoreSheet: React.FC<MoreSheetProps> = ({
                       </TouchableOpacity>
                     );
                   })}
+
+                  {/* Add Custom Category Row */}
+                  {isCreatingCategory ? (
+                    <View style={styles.row}>
+                      <View style={[styles.glowDot, { backgroundColor: colors.glow }]} />
+                      <TextInput
+                        ref={newCatInputRef}
+                        value={newCategoryName}
+                        onChangeText={setNewCategoryName}
+                        placeholder="Category name"
+                        placeholderTextColor={colors.muted}
+                        style={[typeTokens.ui, styles.newCatInput, { color: colors.text }]}
+                        autoFocus
+                        maxLength={24}
+                        returnKeyType="done"
+                        onSubmitEditing={handleSaveNewCategory}
+                      />
+                      <TouchableOpacity
+                        activeOpacity={0.7}
+                        onPress={handleSaveNewCategory}
+                        disabled={!newCategoryName.trim()}
+                        style={styles.actionIconBtn}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        accessibilityLabel="Confirm new category"
+                      >
+                        <Check
+                          size={18}
+                          color={newCategoryName.trim() ? colors.accent : colors.muted}
+                          strokeWidth={2}
+                        />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          setIsCreatingCategory(false);
+                          setNewCategoryName('');
+                        }}
+                        style={[styles.actionIconBtn, { marginLeft: spacing.xs }]}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        accessibilityLabel="Cancel new category"
+                      >
+                        <X size={18} color={colors.muted} strokeWidth={1.8} />
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      activeOpacity={0.7}
+                      onPress={() => {
+                        try {
+                          Haptics.selectionAsync();
+                        } catch (_) {}
+                        setIsCreatingCategory(true);
+                      }}
+                      style={styles.row}
+                      accessibilityRole="button"
+                      accessibilityLabel="Add new category"
+                    >
+                      <Plus size={18} color={colors.accent} strokeWidth={2} style={styles.rowIcon} />
+                      <Text style={[typeTokens.ui, { color: colors.accent, flex: 1 }]}>
+                        New category
+                      </Text>
+                    </TouchableOpacity>
+                  )}
                 </ScrollView>
               </View>
 
@@ -317,7 +427,7 @@ export const MoreSheet: React.FC<MoreSheetProps> = ({
             </>
           )}
         </Animated.View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 };
@@ -383,6 +493,18 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
     marginRight: spacing.sm,
+  },
+  newCatInput: {
+    flex: 1,
+    height: 40,
+    paddingVertical: 0,
+    paddingHorizontal: 0,
+  },
+  actionIconBtn: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   cancelButton: {
     height: 50,

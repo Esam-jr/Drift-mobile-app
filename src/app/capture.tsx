@@ -41,6 +41,7 @@ import {
   createMoment,
   updateMoment,
   getMomentById,
+  createCategory,
 } from '@/services/db/momentRepository';
 import { Mote } from '@/components/Mote';
 import { AudioPlayer } from '@/components/moment/AudioPlayer';
@@ -436,6 +437,20 @@ export default function CaptureScreen() {
           },
         ]
       );
+    }
+  };
+
+  const handleCreateCategory = async (name: string): Promise<Category | void> => {
+    try {
+      const PALETTE = ['#8CA697', '#C5A376', '#A29BB2', '#829EB3', '#9EA6B4', '#B49EA6'];
+      const chosenColor = PALETTE[categories.length % PALETTE.length];
+      const newCat = await createCategory(name, chosenColor);
+      setCategories((prev) => [...prev, newCat]);
+      setSelectedCategoryId(newCat.id);
+      return newCat;
+    } catch (err) {
+      console.warn('Could not create category:', err);
+      Alert.alert('Error', 'Could not create category. Please try again.');
     }
   };
 
@@ -1058,6 +1073,7 @@ export default function CaptureScreen() {
         categories={categories}
         selectedCategoryId={selectedCategoryId}
         onSelectCategory={(id) => setSelectedCategoryId(id)}
+        onCreateCategory={handleCreateCategory}
         locationName={locationName}
         onLocationPress={handleLocationPress}
       />

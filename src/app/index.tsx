@@ -64,6 +64,7 @@ export default function HomeScreen() {
   useFocusEffect(
     useCallback(() => {
       loadData();
+      getCategories().then(setCategories).catch(() => {});
       getSavedHomeLayout().then((saved) => {
         setActiveLayout(saved);
       });

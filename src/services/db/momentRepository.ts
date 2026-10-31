@@ -75,6 +75,34 @@ export async function getCategories(): Promise<Category[]> {
 }
 
 /**
+ * Creates a new custom category.
+ */
+export async function createCategory(name: string, color?: string, icon?: string): Promise<Category> {
+  const db = await getDatabase();
+  const id = `cat-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+  const now = Date.now();
+  const categoryColor = color || '#8CA697';
+  const categoryIcon = icon || 'tag';
+
+  await db.runAsync(
+    `INSERT INTO categories (id, name, color, icon, created_at) VALUES (?, ?, ?, ?, ?);`,
+    id,
+    name.trim(),
+    categoryColor,
+    categoryIcon,
+    now
+  );
+
+  return {
+    id,
+    name: name.trim(),
+    color: categoryColor,
+    icon: categoryIcon,
+    createdAt: now,
+  };
+}
+
+/**
  * Retrieves all moments, optionally filtered by category.
  */
 export async function getAllMoments(filter?: { categoryId?: string; search?: string }): Promise<Moment[]> {
