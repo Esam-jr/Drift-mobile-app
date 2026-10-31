@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   TextInput,
@@ -47,6 +47,15 @@ import { Mote } from '@/components/Mote';
 import { AudioPlayer } from '@/components/moment/AudioPlayer';
 import { PhotoSheet } from '@/components/capture/PhotoSheet';
 import { MoreSheet } from '@/components/capture/MoreSheet';
+import { MarkdownText } from '@/components/moment/MarkdownText';
+import {
+  toggleH1,
+  toggleH2,
+  toggleBold,
+  toggleItalic,
+  detectActiveFormats,
+  TextSelection,
+} from '@/utils/markdown';
 
 export default function CaptureScreen() {
   const { colors } = useTheme();
@@ -70,6 +79,89 @@ export default function CaptureScreen() {
   const [showPhotoSheet, setShowPhotoSheet] = useState(false);
   const [showMoreSheet, setShowMoreSheet] = useState(false);
   const [moreSheetMode, setMoreSheetMode] = useState<'main' | 'category'>('main');
+
+  // Formatting toolbar state per DESIGN-capture.md §4 (with H1 and H2)
+  const [toolbarMode, setToolbarMode] = useState<'normal' | 'formatting'>('normal');
+  const toolbarFadeAnim = useRef(new Animated.Value(0)).current; // 0 = normal, 1 = formatting
+  const [selection, setSelection] = useState<TextSelection>({ start: 0, end: 0 });
+  const selectionRef = useRef<TextSelection>({ start: 0, end: 0 });
+
+  const activeFormats = useMemo(() => {
+    return detectActiveFormats(text, selection);
+  }, [text, selection]);
+
+  const hasFormatting = useMemo(() => {
+    return /^(#|##)\s|\*\*|\*/m.test(text);
+  }, [text]);
+
+  const switchToolbarMode = (targetMode: 'normal' | 'formatting') => {
+    try {
+      Haptics.selectionAsync();
+    } catch (_) {}
+
+    if (targetMode === 'formatting') {
+      textRef.current?.focus();
+    }
+
+    setToolbarMode(targetMode);
+    if (reduceMotion) {
+      toolbarFadeAnim.setValue(targetMode === 'formatting' ? 1 : 0);
+    } else {
+      Animated.timing(toolbarFadeAnim, {
+        toValue: targetMode === 'formatting' ? 1 : 0,
+        duration: motion.fast,
+        useNativeDriver: true,
+      }).start();
+    }
+  };
+
+  const handleToggleH1 = () => {
+    const curSel = selectionRef.current;
+    const res = toggleH1(text, curSel);
+    setText(res.text);
+    selectionRef.current = res.selection;
+    setSelection(res.selection);
+    try {
+      Haptics.selectionAsync();
+    } catch (_) {}
+    setTimeout(() => textRef.current?.focus(), 10);
+  };
+
+  const handleToggleH2 = () => {
+    const curSel = selectionRef.current;
+    const res = toggleH2(text, curSel);
+    setText(res.text);
+    selectionRef.current = res.selection;
+    setSelection(res.selection);
+    try {
+      Haptics.selectionAsync();
+    } catch (_) {}
+    setTimeout(() => textRef.current?.focus(), 10);
+  };
+
+  const handleToggleBold = () => {
+    const curSel = selectionRef.current;
+    const res = toggleBold(text, curSel);
+    setText(res.text);
+    selectionRef.current = res.selection;
+    setSelection(res.selection);
+    try {
+      Haptics.selectionAsync();
+    } catch (_) {}
+    setTimeout(() => textRef.current?.focus(), 10);
+  };
+
+  const handleToggleItalic = () => {
+    const curSel = selectionRef.current;
+    const res = toggleItalic(text, curSel);
+    setText(res.text);
+    selectionRef.current = res.selection;
+    setSelection(res.selection);
+    try {
+      Haptics.selectionAsync();
+    } catch (_) {}
+    setTimeout(() => textRef.current?.focus(), 10);
+  };
 
   // Audio recording state
   const [isRecording, setIsRecording] = useState(false);
@@ -505,6 +597,16 @@ export default function CaptureScreen() {
     outputRange: [1, 0],
   });
 
+  // Crossfade over motion.fast (160ms) per DESIGN-capture.md §4
+  const normalOpacity = toolbarFadeAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 0],
+  });
+  const formattingOpacity = toolbarFadeAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 1],
+  });
+
   // ── Recording State View ──────────────────────────────────────────
   if (isRecording) {
     return (
@@ -601,6 +703,11 @@ export default function CaptureScreen() {
             placeholderTextColor={colors.muted}
             value={text}
             onChangeText={setText}
+            onSelectionChange={(e) => {
+              const sel = e.nativeEvent.selection;
+              selectionRef.current = sel;
+              setSelection(sel);
+            }}
             style={[
               typeTokens.prompt,
               styles.textInput,
@@ -690,80 +797,224 @@ export default function CaptureScreen() {
 
         {/* Bottom toolbar + Keep button */}
         <View style={styles.bottomArea}>
-          {/* Four toolbar buttons: record, photo, Aa, more per DESIGN-capture.md §2 */}
+          {/* Four toolbar buttons: normal or formatting mode per DESIGN-capture.md §2 & §4 */}
           <View style={styles.toolbar}>
-            {/* 1. Record */}
-            <TouchableOpacity
-              activeOpacity={0.7}
-              onPress={startRecording}
-              accessibilityRole="button"
-              accessibilityLabel="Record"
-              style={[styles.toolBtn, { backgroundColor: colors.accent }]}
-            >
-              <Mic size={20} color={colors.onAccent} strokeWidth={2} />
-            </TouchableOpacity>
-
-            {/* 2. Photo */}
-            <TouchableOpacity
-              activeOpacity={0.7}
-              onPress={() => {
-                Keyboard.dismiss();
-                setShowPhotoSheet(true);
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Add photo"
-              style={[styles.toolBtn, { backgroundColor: colors.surface }]}
-            >
-              <ImageLucide size={20} color={colors.muted} strokeWidth={1.8} />
-            </TouchableOpacity>
-
-            {/* 3. Aa (formatting) */}
-            <TouchableOpacity
-              activeOpacity={0.7}
-              onPress={() => {
-                // Focus text input if not focused
-                textRef.current?.focus();
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Formatting"
-              style={[styles.toolBtn, { backgroundColor: colors.surface }]}
-            >
-              <Text
-                style={{
-                  fontFamily: fonts.serif,
-                  fontSize: 18,
-                  lineHeight: 22,
-                  color: colors.muted,
-                }}
-              >
-                Aa
-              </Text>
-            </TouchableOpacity>
-
-            {/* 4. More */}
-            <TouchableOpacity
-              activeOpacity={0.7}
-              onPress={() => {
-                Keyboard.dismiss();
-                setMoreSheetMode('main');
-                setShowMoreSheet(true);
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="More"
+            {/* Normal toolbar row */}
+            <Animated.View
               style={[
-                styles.toolBtn,
+                styles.toolbarRow,
                 {
-                  backgroundColor:
-                    selectedCategoryId || locationName ? colors.accent + '20' : colors.surface,
+                  opacity: normalOpacity,
                 },
               ]}
+              pointerEvents={toolbarMode === 'normal' ? 'auto' : 'none'}
             >
-              <MoreHorizontal
-                size={20}
-                color={selectedCategoryId || locationName ? colors.accent : colors.muted}
-                strokeWidth={1.8}
-              />
-            </TouchableOpacity>
+              {/* 1. Record */}
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={startRecording}
+                accessibilityRole="button"
+                accessibilityLabel="Record"
+                style={[styles.toolBtn, { backgroundColor: colors.accent }]}
+              >
+                <Mic size={20} color={colors.onAccent} strokeWidth={2} />
+              </TouchableOpacity>
+
+              {/* 2. Photo */}
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setShowPhotoSheet(true);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Add photo"
+                style={[styles.toolBtn, { backgroundColor: colors.surface }]}
+              >
+                <ImageLucide size={20} color={colors.muted} strokeWidth={1.8} />
+              </TouchableOpacity>
+
+              {/* 3. Aa (formatting toggle) */}
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => switchToolbarMode('formatting')}
+                accessibilityRole="button"
+                accessibilityLabel="Formatting"
+                style={[styles.toolBtn, { backgroundColor: colors.surface }]}
+              >
+                <Text
+                  style={{
+                    fontFamily: fonts.serifSemiBold,
+                    fontSize: 18,
+                    lineHeight: 22,
+                    color: colors.muted,
+                  }}
+                >
+                  Aa
+                </Text>
+              </TouchableOpacity>
+
+              {/* 4. More */}
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setMoreSheetMode('main');
+                  setShowMoreSheet(true);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="More"
+                style={[
+                  styles.toolBtn,
+                  {
+                    backgroundColor:
+                      selectedCategoryId || locationName ? colors.accent + '20' : colors.surface,
+                  },
+                ]}
+              >
+                <MoreHorizontal
+                  size={20}
+                  color={selectedCategoryId || locationName ? colors.accent : colors.muted}
+                  strokeWidth={1.8}
+                />
+              </TouchableOpacity>
+            </Animated.View>
+
+            {/* Formatting toolbar row: Aa, H1, H2, B, I */}
+            <Animated.View
+              style={[
+                styles.toolbarRow,
+                styles.formattingRowOverlay,
+                {
+                  opacity: formattingOpacity,
+                },
+              ]}
+              pointerEvents={toolbarMode === 'formatting' ? 'auto' : 'none'}
+            >
+              {/* 1. Aa (active, returns to normal toolbar) */}
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => switchToolbarMode('normal')}
+                accessibilityRole="button"
+                accessibilityLabel="Exit formatting"
+                style={[styles.toolBtn, { backgroundColor: colors.accent }]}
+              >
+                <Text
+                  style={{
+                    fontFamily: fonts.serifSemiBold,
+                    fontSize: 18,
+                    lineHeight: 22,
+                    color: colors.onAccent,
+                  }}
+                >
+                  Aa
+                </Text>
+              </TouchableOpacity>
+
+              {/* 2. Heading 1 (H1) */}
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={handleToggleH1}
+                accessibilityRole="button"
+                accessibilityLabel="Heading 1"
+                accessibilityState={{ selected: activeFormats.isH1 }}
+                style={[
+                  styles.toolBtn,
+                  {
+                    backgroundColor: activeFormats.isH1 ? colors.accent : colors.surface,
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    fontFamily: fonts.serifSemiBold,
+                    fontSize: 16,
+                    lineHeight: 20,
+                    color: activeFormats.isH1 ? colors.onAccent : colors.muted,
+                  }}
+                >
+                  H1
+                </Text>
+              </TouchableOpacity>
+
+              {/* 3. Heading 2 (H2) */}
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={handleToggleH2}
+                accessibilityRole="button"
+                accessibilityLabel="Heading 2"
+                accessibilityState={{ selected: activeFormats.isH2 }}
+                style={[
+                  styles.toolBtn,
+                  {
+                    backgroundColor: activeFormats.isH2 ? colors.accent : colors.surface,
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    fontFamily: fonts.serifSemiBold,
+                    fontSize: 16,
+                    lineHeight: 20,
+                    color: activeFormats.isH2 ? colors.onAccent : colors.muted,
+                  }}
+                >
+                  H2
+                </Text>
+              </TouchableOpacity>
+
+              {/* 4. Bold (B) */}
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={handleToggleBold}
+                accessibilityRole="button"
+                accessibilityLabel="Bold"
+                accessibilityState={{ selected: activeFormats.isBold }}
+                style={[
+                  styles.toolBtn,
+                  {
+                    backgroundColor: activeFormats.isBold ? colors.accent : colors.surface,
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    fontFamily: fonts.serifSemiBold,
+                    fontSize: 18,
+                    lineHeight: 22,
+                    color: activeFormats.isBold ? colors.onAccent : colors.muted,
+                  }}
+                >
+                  B
+                </Text>
+              </TouchableOpacity>
+
+              {/* 5. Italic (I) */}
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={handleToggleItalic}
+                accessibilityRole="button"
+                accessibilityLabel="Italic"
+                accessibilityState={{ selected: activeFormats.isItalic }}
+                style={[
+                  styles.toolBtn,
+                  {
+                    backgroundColor: activeFormats.isItalic ? colors.accent : colors.surface,
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    fontFamily: fonts.serifItalic,
+                    fontSize: 18,
+                    lineHeight: 22,
+                    color: activeFormats.isItalic ? colors.onAccent : colors.muted,
+                  }}
+                >
+                  I
+                </Text>
+              </TouchableOpacity>
+            </Animated.View>
           </View>
 
           {/* Keep button: "Keep" or "Keep changes" */}
@@ -949,10 +1200,22 @@ const styles = StyleSheet.create({
     paddingTop: spacing.xs,
   },
   toolbar: {
-    flexDirection: 'row',
-    justifyContent: 'flex-start',
-    gap: spacing.sm,
+    height: 44,
     marginBottom: spacing.md,
+    position: 'relative',
+  },
+  toolbarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    height: 44,
+  },
+  formattingRowOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
   toolBtn: {
     width: 44,

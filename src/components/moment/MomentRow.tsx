@@ -18,6 +18,7 @@ import { useTheme } from '@/theme/ThemeContext';
 import { type as typeTokens, spacing, radius } from '@/theme/tokens';
 import { Moment } from '@/types/moment';
 import { deleteMoment } from '@/services/db/momentRepository';
+import { stripMarkdown } from '@/utils/markdown';
 
 interface Props {
   moment: Moment;
@@ -128,19 +129,20 @@ export function MomentRow({ moment, onDeleted, highlightQuery }: Props) {
 
   // Highlights search matches with a tinted accent background per DESIGN.md §6.7
   const renderHighlightedText = (content: string, query?: string) => {
+    const plainText = stripMarkdown(content);
     if (!query || !query.trim()) {
       return (
         <Text
           numberOfLines={3}
           style={[typeTokens.momentBody, { color: colors.text, marginTop: spacing.xs }]}
         >
-          {content}
+          {plainText}
         </Text>
       );
     }
 
     const trimmed = query.trim();
-    const parts = content.split(new RegExp(`(${trimmed})`, 'gi'));
+    const parts = plainText.split(new RegExp(`(${trimmed})`, 'gi'));
 
     return (
       <Text

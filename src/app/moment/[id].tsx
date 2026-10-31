@@ -20,6 +20,7 @@ import { type as typeTokens, spacing, radius, hitSlop } from '@/theme/tokens';
 import { Moment } from '@/types/moment';
 import { getMomentById, deleteMoment } from '@/services/db/momentRepository';
 import { AudioPlayer } from '@/components/moment/AudioPlayer';
+import { MarkdownText } from '@/components/moment/MarkdownText';
 
 export default function MomentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -183,11 +184,13 @@ export default function MomentDetailScreen() {
           {yearTimeLabel}
         </Text>
 
-        {/* Text content */}
+        {/* Text content rendered as Markdown per DESIGN-capture.md §4b */}
         {hasText && (
-          <Text style={[typeTokens.momentDetail, styles.body, { color: colors.text }]}>
-            {moment.text}
-          </Text>
+          <MarkdownText
+            content={moment.text!}
+            baseTypeStyle={typeTokens.momentDetail}
+            style={styles.body}
+          />
         )}
 
         {/* Voice player per DESIGN.md §6.6 */}

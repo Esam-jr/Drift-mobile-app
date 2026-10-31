@@ -10,6 +10,7 @@ import {
   Section,
 } from '@/types/moment';
 import { persistMediaFile, deleteMediaFile } from '../media/mediaService';
+import { stripMarkdown } from '@/utils/markdown';
 
 interface MomentRow {
   id: string;
@@ -97,9 +98,9 @@ export async function getAllMoments(filter?: { categoryId?: string; search?: str
   }
 
   if (filter?.search && filter.search.trim().length > 0) {
-    conditions.push('(m.text LIKE ? OR m.title LIKE ? OR m.location_name LIKE ?)');
+    conditions.push('(m.text_plain LIKE ? OR m.text LIKE ? OR m.title LIKE ? OR m.location_name LIKE ?)');
     const searchTerm = `%${filter.search.trim()}%`;
-    params.push(searchTerm, searchTerm, searchTerm);
+    params.push(searchTerm, searchTerm, searchTerm, searchTerm);
   }
 
   if (conditions.length > 0) {
@@ -189,12 +190,15 @@ export async function createMoment(input: CreateMomentInput): Promise<Moment> {
     }
   }
 
+  const textPlain = input.text ? stripMarkdown(input.text) : null;
+
   await db.runAsync(
-    `INSERT INTO moments (id, title, text, created_at, updated_at, category_id, audio_uri, audio_duration, location_name)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+    `INSERT INTO moments (id, title, text, text_plain, created_at, updated_at, category_id, audio_uri, audio_duration, location_name)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
     momentId,
     input.title ?? null,
     input.text ?? null,
+    textPlain,
     now,
     now,
     input.categoryId ?? null,
@@ -276,12 +280,16 @@ export async function updateMoment(input: UpdateMomentInput): Promise<Moment> {
     }
   }
 
+  const updatedText = input.text !== undefined ? (input.text ?? null) : (existing.text ?? null);
+  const updatedTextPlain = updatedText ? stripMarkdown(updatedText) : null;
+
   await db.runAsync(
     `UPDATE moments 
-     SET title = ?, text = ?, category_id = ?, updated_at = ?, location_name = ?, audio_uri = ?, audio_duration = ?
+     SET title = ?, text = ?, text_plain = ?, category_id = ?, updated_at = ?, location_name = ?, audio_uri = ?, audio_duration = ?
      WHERE id = ?;`,
     input.title !== undefined ? (input.title ?? null) : (existing.title ?? null),
-    input.text !== undefined ? (input.text ?? null) : (existing.text ?? null),
+    updatedText,
+    updatedTextPlain,
     input.categoryId !== undefined ? (input.categoryId ?? null) : (existing.categoryId ?? null),
     now,
     input.locationName !== undefined ? (input.locationName ?? null) : (existing.locationName ?? null),
@@ -441,10 +449,11 @@ export async function getGroupedMomentPreviews(filter?: {
       thumbUri: img.uri,
     }));
 
-    // Truncate text to ~200 characters per DESIGN-home.md §6
+    // Truncate text to ~200 characters per DESIGN-home.md §6 and strip markdown symbols per §4b
     let previewText: string | undefined = undefined;
     if (row.text && row.text.trim().length > 0) {
-      previewText = row.text.length > 200 ? row.text.slice(0, 200) + '...' : row.text;
+      const plain = stripMarkdown(row.text);
+      previewText = plain.length > 200 ? plain.slice(0, 200) + '...' : plain;
     }
 
     const preview: MomentPreview = {

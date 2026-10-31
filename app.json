@@ -8,7 +8,7 @@
     "scheme": "drift",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "bundleIdentifier": "com.drift.journal",
+      "bundleIdentifier": "io.github.esamjr.drift",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Drift needs microphone access to record a voice moment.",
         "NSCameraUsageDescription": "Drift needs camera access so you can take photos for your moments.",
@@ -17,6 +17,7 @@
       }
     },
     "android": {
+      "package": "io.github.esamjr.drift",
       "adaptiveIcon": {
         "backgroundColor": "#13121B",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -42,7 +43,10 @@
       "expo-sqlite",
       "expo-secure-store",
       "expo-audio",
-      "expo-font"
+      "expo-font",
+      "expo-asset",
+      "expo-image",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,

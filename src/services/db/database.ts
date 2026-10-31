@@ -30,6 +30,7 @@ async function initSchema(db: SQLite.SQLiteDatabase): Promise<void> {
       id TEXT PRIMARY KEY NOT NULL,
       title TEXT,
       text TEXT,
+      text_plain TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       category_id TEXT,
@@ -52,6 +53,13 @@ async function initSchema(db: SQLite.SQLiteDatabase): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_moments_category_id ON moments(category_id);
     CREATE INDEX IF NOT EXISTS idx_moment_images_moment_id ON moment_images(moment_id);
   `);
+
+  // Migrate existing databases to add text_plain column if missing
+  try {
+    await db.execAsync('ALTER TABLE moments ADD COLUMN text_plain TEXT;');
+  } catch (_) {
+    // Column already exists
+  }
 
   // Seed default categories idempotently using INSERT OR IGNORE
   const now = Date.now();
