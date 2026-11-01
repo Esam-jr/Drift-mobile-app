@@ -20,6 +20,8 @@ import { useSecurity } from '@/services/security/SecurityContext';
 import { type as typeTokens, spacing, radius } from '@/theme/tokens';
 import { getAllMoments } from '@/services/db/momentRepository';
 import { LockTimeout } from '@/services/security/securityService';
+import { HomeLayout } from '@/types/moment';
+import { getSavedHomeLayout, saveHomeLayout } from '@/services/preferences/preferencesService';
 
 export default function SettingsScreen() {
   const { colors, mode, setMode } = useTheme();
@@ -37,11 +39,14 @@ export default function SettingsScreen() {
   } = useSecurity();
 
   const [momentCount, setMomentCount] = useState<number>(0);
+  const [homeLayout, setHomeLayout] = useState<HomeLayout>('journal');
 
   const loadSettingsData = useCallback(async () => {
     try {
       const moments = await getAllMoments();
       setMomentCount(moments.length);
+      const savedLayout = await getSavedHomeLayout();
+      setHomeLayout(savedLayout);
     } catch (err) {
       console.warn('Error loading settings data:', err);
     }
@@ -163,6 +168,65 @@ export default function SettingsScreen() {
     dark: 'Dark',
   }[mode];
 
+  const handleHomeLayoutPress = () => {
+    try {
+      Haptics.selectionAsync();
+    } catch (_) {}
+
+    const layoutOptions: { label: string; value: HomeLayout }[] = [
+      { label: 'Journal', value: 'journal' },
+      { label: 'Gallery', value: 'gallery' },
+      { label: 'Compact', value: 'compact' },
+    ];
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Cancel', 'Journal', 'Gallery', 'Compact'],
+          cancelButtonIndex: 0,
+        },
+        async (index) => {
+          if (index >= 1 && index <= 3) {
+            const selected = layoutOptions[index - 1].value;
+            setHomeLayout(selected);
+            await saveHomeLayout(selected);
+          }
+        }
+      );
+    } else {
+      Alert.alert('Home layout', undefined, [
+        {
+          text: 'Journal',
+          onPress: async () => {
+            setHomeLayout('journal');
+            await saveHomeLayout('journal');
+          },
+        },
+        {
+          text: 'Gallery',
+          onPress: async () => {
+            setHomeLayout('gallery');
+            await saveHomeLayout('gallery');
+          },
+        },
+        {
+          text: 'Compact',
+          onPress: async () => {
+            setHomeLayout('compact');
+            await saveHomeLayout('compact');
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
+    }
+  };
+
+  const homeLayoutLabel = {
+    journal: 'Journal',
+    gallery: 'Gallery',
+    compact: 'Compact',
+  }[homeLayout];
+
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.bg }]} edges={['top']}>
       <View style={styles.container}>
@@ -246,6 +310,21 @@ export default function SettingsScreen() {
           >
             <Text style={[typeTokens.ui, { color: colors.text }]}>Theme</Text>
             <Text style={[typeTokens.ui, { color: colors.muted }]}>{themeLabel}</Text>
+          </TouchableOpacity>
+
+          {/* Home layout row per DESIGN-home.md §1 & §8 */}
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={handleHomeLayoutPress}
+            style={[styles.row, { borderBottomColor: colors.hairline }]}
+          >
+            <View style={{ flex: 1, marginRight: spacing.md }}>
+              <Text style={[typeTokens.ui, { color: colors.text }]}>Home layout</Text>
+              <Text style={[typeTokens.meta, { color: colors.muted, marginTop: 2 }]}>
+                Choose how your moments appear on the main screen.
+              </Text>
+            </View>
+            <Text style={[typeTokens.ui, { color: colors.muted }]}>{homeLayoutLabel}</Text>
           </TouchableOpacity>
 
           {/* Your Moments Section */}

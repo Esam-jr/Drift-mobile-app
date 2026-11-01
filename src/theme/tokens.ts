@@ -39,11 +39,16 @@ export const mote = {
 export const fonts = {
   serif: 'Newsreader_400Regular',
   serifItalic: 'Newsreader_400Regular_Italic',
+  serifSemiBold: 'Newsreader_600SemiBold',
+  serifSemiBoldItalic: 'Newsreader_600SemiBold_Italic',
   sans: 'Figtree_400Regular',
   sansMedium: 'Figtree_500Medium',
 } as const;
 
 export const type = {
+  heading: { fontFamily: fonts.serifSemiBold, fontSize: 24, lineHeight: 30 },
+  heading1: { fontFamily: fonts.serifSemiBold, fontSize: 24, lineHeight: 30 },
+  heading2: { fontFamily: fonts.serifSemiBold, fontSize: 20, lineHeight: 26 },
   dayHeading: { fontFamily: fonts.serif, fontSize: 22, lineHeight: 28 },
   dateDisplay: { fontFamily: fonts.serif, fontSize: 28, lineHeight: 32 },
   prompt: { fontFamily: fonts.serif, fontSize: 22, lineHeight: 30 },

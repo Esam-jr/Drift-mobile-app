@@ -6,13 +6,14 @@ import { type as typeTokens, spacing, motion } from '@/theme/tokens';
 
 interface EmptyStateProps {
   glow?: boolean;
+  onSeed?: () => void;
 }
 
 /**
  * Empty state for Home. Shows Mote at rest with gentle float animation per DESIGN.md §6.4 & §7.
  * Copy from DESIGN.md §6.4. No buttons — capture bar stays at bottom of Home.
  */
-export function EmptyState({ glow = false }: EmptyStateProps) {
+export function EmptyState({ glow = false, onSeed }: EmptyStateProps) {
   const { colors } = useTheme();
   const [reduceMotion, setReduceMotion] = useState(false);
   const floatAnim = useRef(new Animated.Value(0)).current;
@@ -79,6 +80,18 @@ export function EmptyState({ glow = false }: EmptyStateProps) {
       >
         Capture a moment whenever it drifts in.
       </Text>
+
+      {__DEV__ && onSeed && (
+        <Text
+          onPress={onSeed}
+          style={[
+            typeTokens.small,
+            { color: colors.muted, opacity: 0.6, marginTop: spacing.xl, textDecorationLine: 'underline' },
+          ]}
+        >
+          Seed 150 sample moments (Dev)
+        </Text>
+      )}
     </View>
   );
 }

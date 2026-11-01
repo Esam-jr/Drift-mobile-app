@@ -3,7 +3,13 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { View, StyleSheet, AppState, Modal, Platform } from 'react-native';
-import { useFonts, Newsreader_400Regular, Newsreader_400Regular_Italic } from '@expo-google-fonts/newsreader';
+import {
+  useFonts,
+  Newsreader_400Regular,
+  Newsreader_400Regular_Italic,
+  Newsreader_600SemiBold,
+  Newsreader_600SemiBold_Italic,
+} from '@expo-google-fonts/newsreader';
 import { Figtree_400Regular, Figtree_500Medium } from '@expo-google-fonts/figtree';
 import * as SplashScreen from 'expo-splash-screen';
 import * as ScreenCapture from 'expo-screen-capture';
@@ -140,6 +146,8 @@ export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
     Newsreader_400Regular,
     Newsreader_400Regular_Italic,
+    Newsreader_600SemiBold,
+    Newsreader_600SemiBold_Italic,
     Figtree_400Regular,
     Figtree_500Medium,
   });
